@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="th"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lilsheep · เข้าสู่ระบบ</title>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#0b0b0f; --card:#16161d; --line:#2a2a35; --fg:#f4f4f6; --muted:#9aa0ab; --accent:#25f4ee; }
+  * { box-sizing:border-box; } body { margin:0; font-family:Kanit,system-ui,sans-serif; background:var(--bg); color:var(--fg); display:flex; min-height:100vh; align-items:center; justify-content:center; }
+  form { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:32px; width:min(360px,92vw); }
+  h1 { margin:0 0 4px; font-size:20px; } p { margin:0 0 20px; color:var(--muted); font-size:13px; }
+  label { display:block; font-size:13px; margin:14px 0 6px; color:var(--muted); }
+  input { width:100%; padding:11px 12px; border-radius:10px; border:1px solid var(--line); background:#0f0f15; color:var(--fg); font:inherit; }
+  button { width:100%; margin-top:22px; padding:12px; border:0; border-radius:10px; background:var(--accent); color:#04232b; font:inherit; font-weight:700; cursor:pointer; }
+  .err { margin-top:14px; color:#ff6b6b; font-size:13px; display:none; }
+  .err.show { display:block; }
+</style></head>
+<body>
+  <form method="POST" action="/login">
+    <h1>Lilsheep · TikTok</h1>
+    <p>แดชบอร์ดผลการขายและโฆษณา</p>
+    <label>ชื่อผู้ใช้</label>
+    <input name="username" autocomplete="username" required>
+    <label>รหัสผ่าน</label>
+    <input name="password" type="password" autocomplete="current-password" required>
+    <button type="submit">เข้าสู่ระบบ</button>
+    <div class="err" id="err">ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง</div>
+  </form>
+  <script>
+    const p = new URLSearchParams(location.search);
+    if (p.get('error')) { const e = document.getElementById('err'); e.textContent = p.get('error') === 'locked' ? 'ลองผิดหลายครั้งเกินไป กรุณารอสักครู่' : 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง'; e.classList.add('show'); }
+  </script>
+</body></html>

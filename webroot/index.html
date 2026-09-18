@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="th"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lilsheep · TikTok Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    --ink:#2b2740; --sub:#63607e; --muted:#a4a0b6;
+    --bg:#f2f1f7; --card:#ffffff; --card-2:#f8f7fc; --line:#e8e6f1; --hairline:rgba(43,39,64,.07);
+    --pri:#6d63c9; --pri-ink:#574dab; --pri-tint:#eeecfa;
+    --live:#e0688a; --cart:#8b82d6; --video:#2f97a3; --gold:#c0850f;
+    --sales:#2b8f9c; --spend:#d06f88;                 /* semantic (muted): ยอดขาย=teal · ค่าแอด=rose */
+    --good:#2f9e63; --bad:#d9545a; --warn:#b0760f;
+    --glass:0 1px 3px rgba(43,39,64,.05);
+    --grad:linear-gradient(120deg,#6b64b8 0%,#8a72c0 52%,#b47cbb 100%);
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{font-family:'Kanit',sans-serif; color:var(--ink); padding-bottom:60px; font-weight:300; min-height:100vh; background:var(--bg);}
+  b,strong{font-weight:500;} a{color:inherit;}
+  header.app{background:var(--grad); color:#fff; padding:20px 24px 15px; box-shadow:0 3px 14px rgba(107,100,184,.15);}
+  header.app .wrap{max-width:1280px; margin:0 auto; display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;}
+  header.app h1{font-size:20px; font-weight:600; letter-spacing:.3px; color:var(--ink);} header.app p{color:rgba(255,255,255,.82); font-size:12.5px; margin-top:2px;}
+  .hright{display:flex; align-items:center; gap:12px; flex-wrap:wrap;}
+  .cloud{font-size:12px; color:rgba(255,255,255,.88); white-space:nowrap;} .cloud .dot{display:inline-block; width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:middle;background:#ffd54a; box-shadow:0 0 8px currentColor;}
+  .cloud.ok .dot{background:#7bffb0;} .cloud.err .dot{background:#ff9aa8;}
+  select.month{background:rgba(255,255,255,.20); color:#fff; border:1px solid rgba(255,255,255,.4); border-radius:9px; padding:7px 12px; font-family:inherit; font-size:14px; cursor:pointer;} select.month option{color:#111;}
+  .hbtn{background:rgba(255,255,255,.20); color:#fff; border:1px solid rgba(255,255,255,.4); padding:6px 13px; border-radius:9px; font-family:inherit; font-size:12.5px; cursor:pointer;} .hbtn:hover{background:rgba(255,255,255,.32);}
+  .spin{display:none; width:15px;height:15px;border-radius:50%;border:2px solid rgba(255,255,255,.45); border-top-color:#fff; animation:sp .7s linear infinite;} body.loading .spin{display:inline-block;}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  body.loading main{opacity:.4; transition:opacity .2s;} main{transition:opacity .2s;}
+  .nav-wrap{background:rgba(255,255,255,.82); backdrop-filter:blur(12px); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:10;}
+  .nav{display:flex; gap:2px; flex-wrap:wrap; max-width:1280px; margin:0 auto; padding:6px 24px 0;}
+  .nav-btn{background:none; border:none; border-bottom:2px solid transparent; padding:10px 15px 11px; font:inherit; font-size:14px; font-weight:400; color:var(--sub); cursor:pointer; display:flex; align-items:center; gap:7px;}
+  .nav-btn:hover{color:var(--ink);} .nav-btn.active{color:var(--pri-ink); font-weight:500; border-bottom-color:var(--pri);}
+  .nav-btn .ic{width:15px;height:15px;opacity:.7;} .nav-btn.active .ic{opacity:1; color:var(--pri-ink);}
+  main{max-width:1280px; margin:18px auto; padding:0 24px;}
+  .tab{display:none;} .tab.active{display:block;}
+  .section-title{font-size:14px; font-weight:500; margin:22px 0 12px; display:flex; align-items:center; gap:8px; color:var(--ink);}
+  .section-title .ic{width:16px;height:16px;color:var(--pri-ink);} .section-title .r{margin-left:auto; font-size:12.5px; color:var(--muted); font-weight:300;}
+  .grid-kpi{display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:11px;}
+  .card{background:var(--card); border:1px solid var(--hairline); border-radius:14px; padding:15px 17px; backdrop-filter:blur(10px); box-shadow:var(--glass);}
+  .kpi{position:relative; overflow:hidden;} .kpi .klabel{font-size:12px; color:var(--sub);} .kpi .kval{font-size:23px; font-weight:600; letter-spacing:.2px; margin:5px 0 3px; line-height:1.05; color:var(--ink);}
+  .kpi .ksub{font-size:11.5px; color:var(--muted); min-height:16px;}
+  .kpi .kbar{margin-top:2px;} .badge{font-size:11.5px; font-weight:500;} .badge.up{color:var(--good);} .badge.down{color:var(--bad);} .badge.flat{color:var(--muted);}
+  .kpi.hl{background:var(--pri-tint); border-color:rgba(109,99,201,.26);}
+  .kpi.sales{border-left:3px solid var(--sales);} .kpi.sales .kval{color:var(--sales);}
+  .kpi.spend{border-left:3px solid var(--spend);} .kpi.spend .kval{color:var(--spend);}
+  .grid-2{display:grid; grid-template-columns:1.25fr 1fr; gap:12px;} @media(max-width:900px){.grid-2{grid-template-columns:1fr;}}
+  /* insights banner */
+  .insights{background:linear-gradient(135deg,rgba(109,99,201,.07),rgba(47,143,156,.045)); border:1px solid rgba(109,99,201,.18); border-radius:14px; padding:14px 18px; margin-bottom:4px; box-shadow:var(--glass);}
+  .insights .line{font-size:14px; color:var(--ink); line-height:1.7;} .insights .line b{color:var(--sales); font-weight:600;}
+  .chips{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;}
+  .chipA{font-size:12px; font-weight:400; padding:4px 12px; border-radius:20px; display:inline-flex; align-items:center; gap:6px;}
+  .chipA.warn{background:rgba(217,84,90,.10); color:#c04a50; border:1px solid rgba(217,84,90,.24);}
+  .chipA.good{background:rgba(47,158,99,.10); color:#2f8a58; border:1px solid rgba(47,158,99,.22);}
+  .panel-tag{display:inline-block; font-size:11px; font-weight:500; padding:2px 9px; border-radius:20px; margin-bottom:2px;}
+  .tag-roi{background:var(--pri-tint); color:var(--pri-ink);} .tag-noroi{background:#eef0f4; color:var(--sub);}
+  .bignum{font-size:27px; font-weight:600; letter-spacing:.3px; color:var(--ink);} .bignum small{font-size:13px; font-weight:400; color:var(--muted); margin-left:4px;}
+  .rowline{display:flex; justify-content:space-between; align-items:baseline; padding:7px 0; font-size:13.5px; border-bottom:1px solid var(--hairline);} .rowline:last-of-type{border-bottom:none;}
+  .rowline .k{color:var(--sub);} .rowline .v{font-weight:500; color:var(--ink);}
+  .splitbar{height:22px; border-radius:7px; overflow:hidden; display:flex; margin:12px 0 8px; background:#edeaf7;}
+  .splitbar > span{display:flex; align-items:center; justify-content:center; color:#fff; font-size:11.5px; font-weight:500; min-width:34px;}
+  .splitlegend{display:flex; gap:16px; flex-wrap:wrap; font-size:12.5px; color:var(--sub);}
+  .splitlegend .dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:middle;}
+  .roas{font-weight:500;} .roas.g{color:var(--good);} .roas.m{color:var(--warn);} .roas.b{color:var(--bad);} .roas.na{color:var(--muted);font-weight:300;}
+  .roi-pill{display:inline-block; font-size:12px; font-weight:500; padding:1px 9px; border-radius:20px; background:rgba(47,158,99,.12); color:var(--good);} .roi-pill.m{background:rgba(176,118,15,.12); color:var(--warn);}
+  .srcrow{display:grid; grid-template-columns:140px 1fr auto; gap:12px; align-items:center; margin:9px 0; font-size:13px;}
+  .srcrow .nm{color:var(--sub);} .srcbar{height:24px; background:#edeaf7; border-radius:7px; overflow:hidden;} .srcbar > span{display:block; height:100%; border-radius:7px;}
+  .srcrow .amt{text-align:right; font-weight:500; white-space:nowrap; color:var(--ink);} .srcrow .amt small{color:var(--muted); font-weight:400;}
+  table{width:100%; border-collapse:collapse; font-size:13.5px; font-variant-numeric:tabular-nums;}
+  thead th{color:var(--sub); font-weight:400; font-size:12.5px; text-align:right; padding:9px 11px; border-bottom:1px solid var(--line); white-space:nowrap;} thead th:first-child{text-align:left;}
+  tbody td{padding:10px 11px; border-bottom:1px solid var(--hairline); text-align:right; color:var(--ink);} tbody td:first-child{text-align:left;} tbody tr:last-child td{border-bottom:none;} tbody tr:hover{background:rgba(109,99,201,.045);}
+  tbody tr.grand td{font-weight:500; border-top:1.5px solid rgba(43,39,64,.18);}
+  .chip{display:inline-flex; align-items:center; gap:8px;} .chip .sw{width:9px;height:9px;border-radius:50%;flex:none;}
+  .tbl-wrap{overflow-x:auto;} canvas{max-width:100%; max-height:260px;}
+  h3.mini{font-size:13.5px; font-weight:500; margin-bottom:12px; display:flex; align-items:center; gap:8px; color:var(--ink);}
+  .obj-group{margin-bottom:26px;} .obj-head{display:flex; align-items:center; gap:9px; margin:0 0 12px; font-size:14px; font-weight:500; color:var(--ink);}
+  .obj-head .pill{font-size:11px; font-weight:500; padding:2px 10px; border-radius:20px; background:var(--pri-tint); color:var(--pri-ink);}
+  .obj-head .cnt{font-size:12.5px; color:var(--muted); font-weight:300;}
+  .clips{display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:15px;}
+  .cliprow{display:flex; gap:14px; overflow-x:auto; padding:4px 2px 14px; scroll-snap-type:x proximity;}
+  .cliprow .clip{flex:0 0 166px; scroll-snap-align:start;}
+  .clip .who{font-size:12px; color:var(--pri-ink); font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:5px;}
+  .clip .mrow{display:flex; justify-content:space-between; align-items:baseline; font-size:12px; padding:2px 0;}
+  .clip .mrow .k{color:var(--muted);} .clip .mrow .v{font-weight:500; color:var(--ink);} .clip .roibig{font-size:15px; font-weight:600;}
+  .clip .playic{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; opacity:.85; pointer-events:none;}
+  .clip{background:var(--card); border:1px solid var(--hairline); border-radius:13px; overflow:hidden; transition:box-shadow .15s,transform .15s; text-decoration:none;}
+  .clip:hover{box-shadow:0 4px 14px rgba(43,39,64,.10), 0 0 0 1px rgba(109,99,201,.22); transform:translateY(-2px);}
+  .clip .thumb{position:relative; display:block; aspect-ratio:9/16; background:linear-gradient(160deg,#efe9ff,#e4f4f6);} .clip .thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+  .clip .rank{position:absolute; top:8px; left:8px; background:rgba(10,8,26,.7); color:#fff; font-size:11px; font-weight:500; padding:2px 8px; border-radius:20px; border:1px solid rgba(255,255,255,.15);}
+  .clip .b{padding:10px 12px 12px;} .clip .cap{font-size:12px; color:var(--sub); line-height:1.4; height:34px; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;}
+  .clip .m{display:flex; justify-content:space-between; font-size:12.5px; margin-top:8px;} .clip .m .k{color:var(--muted);} .clip .m .v{font-weight:500;}
+  .inp{width:min(460px,100%); padding:10px 13px; border:1px solid var(--line); border-radius:9px; font:inherit; font-size:14px; background:#fff; color:var(--ink);} .inp:focus{outline:none;border-color:var(--pri);} .inp::placeholder{color:var(--muted);}
+  .btn{background:linear-gradient(120deg,#7a70d0,#6d63c9); color:#fff; border:none; padding:9px 18px; border-radius:9px; font:inherit; font-size:13.5px; cursor:pointer; box-shadow:0 2px 8px rgba(109,99,201,.20);} .btn:hover{filter:brightness(1.05);}
+  .btn.ghost{background:#edeaf7; color:var(--pri-ink); border:1px solid var(--hairline); box-shadow:none;} .btn:disabled{opacity:.5;cursor:default;}
+  .note{font-size:12.5px; color:var(--muted); margin:8px 0; line-height:1.7;} .fld{display:block; font-size:12.5px; color:var(--sub); margin:14px 0 6px;}
+  .empty{text-align:center; padding:40px 20px; color:var(--muted); font-size:13.5px; line-height:1.9;}
+  hr{border:none; border-top:1px solid var(--hairline); margin:20px 0;} .muted{color:var(--muted);}
+</style></head>
+<body>
+  <header class="app"><div class="wrap">
+    <div><h1>Lilsheep · TikTok</h1><p>รายงานค่าแอด &amp; ยอดขาย</p></div>
+    <div class="hright">
+      <span class="cloud" id="cloud"><span class="dot"></span><span id="cloudtxt">กำลังโหลด…</span></span>
+      <span class="spin" title="กำลังโหลดข้อมูล"></span>
+      <select class="month" id="month"></select>
+      <form method="POST" action="/logout" style="margin:0"><button class="hbtn" type="submit">ออกจากระบบ</button></form>
+    </div>
+  </div></header>
+
+  <div class="nav-wrap"><div class="nav" id="tabs">
+    <button class="nav-btn active" data-t="overview"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>ภาพรวม</button>
+    <button class="nav-btn" data-t="trend"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 6-7"/></svg>เทรนด์</button>
+    <button class="nav-btn" data-t="product"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M20 7l-8-4-8 4 8 4 8-4z"/><path d="M4 7v10l8 4 8-4V7"/><path d="M12 11v10"/></svg>สินค้า</button>
+    <button class="nav-btn" data-t="ads"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M3 11l18-5v12L3 13z"/></svg>โฆษณา</button>
+    <button class="nav-btn" data-t="clips"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M10 9l5 3-5 3z"/></svg>คลิป</button>
+    <button class="nav-btn" data-t="affiliate"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M2 20c0-3.3 3-5 7-5s7 1.7 7 5"/><circle cx="17.5" cy="9.5" r="2.2"/><path d="M17.5 14c2.6 0 4.5 1.4 4.5 4"/></svg>Affiliate</button>
+    <button class="nav-btn" data-t="setup"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/></svg>ตั้งค่า</button>
+  </div></div>
+
+  <main>
+    <section class="tab active" id="overview">
+      <div class="section-title"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>ภาพรวม<span class="r" id="ovMonth"></span></div>
+      <div class="insights" id="insights" style="display:none"></div>
+      <div class="grid-kpi" id="kpis" style="margin-top:12px"></div>
+
+      <div class="section-title" style="margin-top:18px"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M4 9h16M4 9l1-4h14l1 4M5 9v11h14V9"/></svg>ยอดขายร้าน (ทุกช่องทาง รวมออร์แกนิก)</div>
+      <div class="grid-kpi" id="shopKpis"></div>
+
+      <div class="grid-2" style="margin-top:14px">
+        <div class="card" id="gmvPanel"></div>
+        <div class="card" id="awarePanel"></div>
+      </div>
+
+      <div class="card" style="margin-top:12px" id="srcCard">
+        <h3 class="mini"><svg class="ic" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="var(--pri)" stroke-width="1.9"><path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 5-6"/></svg>ยอดขายแยกช่องทางร้าน (ไลฟ์ · คลิป · หน้าร้าน)</h3>
+        <div id="srcBody"></div>
+      </div>
+    </section>
+
+    <section class="tab" id="trend">
+      <div class="section-title">เทรนด์รายเดือน — เทียบย้อนหลัง<span class="r" id="trendRange"></span></div>
+      <div class="grid-2">
+        <div class="card"><h3 class="mini">💰 ยอดขายรายเดือน</h3><canvas id="chTrendSales"></canvas></div>
+        <div class="card"><h3 class="mini">📢 ค่าแอดรายเดือน (GMV Max + สร้างการรับรู้)</h3><canvas id="chTrendSpend"></canvas></div>
+      </div>
+      <div class="card" style="margin-top:12px"><h3 class="mini">📈 ROI รายเดือน (เทียบเกณฑ์ 3)</h3><canvas id="chTrendRoi"></canvas></div>
+      <div class="card tbl-wrap" style="margin-top:12px"><table id="trendTable"></table></div>
+      <div class="note">ตัวเลขรวมรายเดือน (ยอดขาย · ค่าแอด · ROI) ย้อนได้ถึง ม.ค. 2026 · รายคลิป/รายครีเอเตอร์ TikTok ให้ย้อนแค่ ~เม.ย. เท่านั้น</div>
+    </section>
+
+    <section class="tab" id="product">
+      <div class="section-title">วิเคราะห์รายสินค้า<span class="r" id="productCount"></span></div>
+      <div class="card"><h3 class="mini">🏆 Top สินค้า ตามยอดขาย</h3><canvas id="chProduct"></canvas></div>
+      <div class="card tbl-wrap" style="margin-top:12px"><table id="productTable"></table></div>
+      <div class="note">รวมจากคลิป Top ของเดือน · ยอดขาย = ยอดที่คลิปของสินค้านั้นทำได้ (ทุกช่องทาง รวมออร์แกนิก) · ค่าแอด/ROI = จาก GMV Max รายคลิป</div>
+    </section>
+
+    <section class="tab" id="ads">
+      <div class="section-title">โฆษณา — แยกตามประเภท<span class="r" id="adsCount"></span></div>
+      <div class="card tbl-wrap"><h3 class="mini">🎯 GMV Max (ยิงขาย · คิด ROI)</h3><table id="gmvAdsTable"></table></div>
+      <div class="card" style="margin-top:12px"><h3 class="mini">🏷️ ค่าแอด GMV Max แยกช่อง — แบรนด์ vs ครีเอเตอร์ (Product รายคลิป)</h3><div id="adChannelBody"></div></div>
+      <div class="card tbl-wrap" style="margin-top:12px"><h3 class="mini">📢 สร้างการรับรู้ — แยกตามวัตถุประสงค์</h3><table id="awareAdsTable"></table></div>
+      <div class="note">GMV Max = ยิงขาย · สร้างการรับรู้ = View/Reach/Traffic · แยกช่องแบรนด์/ครีเอเตอร์จากค่าแอดรายคลิป (Product GMV Max) — ไลฟ์เป็นยอดรวม TikTok ไม่แตกรายรอบ</div>
+    </section>
+
+    <section class="tab" id="clips">
+      <div class="section-title">Top Ads (คลิป) รายคลิป — ทำยอด · engagement · การรับรู้<span class="r" id="clipCount"></span></div>
+      <div id="clipGroups"></div>
+    </section>
+
+    <section class="tab" id="affiliate">
+      <div class="section-title">Affiliate / ครีเอเตอร์<span class="r">ครีเอเตอร์ทุกคนที่ช่วยขายสินค้า Lilsheep</span></div>
+      <div class="grid-kpi" id="affKpis"></div>
+      <div class="card" style="margin-top:12px"><h3 class="mini"><svg class="ic" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="var(--pri)" stroke-width="1.9"><path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 5-6"/></svg>การเติบโต — ยอดขาย Affiliate รายเดือน (คลิป + ไลฟ์)</h3><canvas id="chGrowth"></canvas></div>
+      <div class="grid-2" style="margin-top:12px">
+        <div><h3 class="mini">🎬 คนทำยอดเยอะ — ฝั่งคลิป (VDO)</h3><div class="card tbl-wrap"><table id="affVideo"></table></div></div>
+        <div><h3 class="mini">🔴 คนทำยอดเยอะ — ฝั่งไลฟ์ (Live)</h3><div class="card tbl-wrap"><table id="affLive"></table></div></div>
+      </div>
+      <div class="note">รวมครีเอเตอร์/affiliate ทุกช่องที่ขายสินค้า Lilsheep (ไม่ใช่ช่องแบรนด์เอง)</div>
+    </section>
+
+    <section class="tab" id="setup">
+      <div class="section-title">ตั้งค่า &amp; ซิงก์ข้อมูล</div>
+      <div class="card" style="max-width:620px">
+        <div class="note" id="connState">…</div>
+        <label class="fld">Report Pilot API Token (rpt_…)</label>
+        <input class="inp" id="token" type="password" placeholder="rpt_…">
+        <div style="margin-top:12px"><button class="btn" id="saveToken">บันทึกโทเคน</button></div>
+        <hr>
+        <button class="btn ghost" id="syncNow">🔄 ซิงก์ข้อมูลเดือนนี้ตอนนี้</button>
+        <div class="note" id="syncState"></div>
+        <div class="note" style="margin-top:8px">ซิงก์อัตโนมัติวันละครั้ง · ปุ่มนี้ดึงทันที (ราว 2–3 นาที)</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const baht=(n)=>'฿'+Math.round(Number(n)||0).toLocaleString('th-TH');
+    const bahtK=(n)=>{n=Number(n)||0; if(n>=1e6)return'฿'+(n/1e6).toFixed(2)+'M'; if(n>=1e3)return'฿'+(n/1e3).toFixed(1)+'K'; return'฿'+Math.round(n).toLocaleString('th-TH');};
+    const numf=(n)=>(Number(n)||0).toLocaleString('th-TH');
+    const numc=(n)=>{n=Number(n)||0; if(n>=1e6)return(n/1e6).toFixed(2)+'M'; if(n>=1e3)return(n/1e3).toFixed(1)+'K'; return numf(n);};   // compact counts for wide tables
+    const dc=(n)=>(Number(n)>0?numc(Number(n)):'<span class="muted">—</span>');   // dash a zero so the eye skips it
+    const pct=(a,b)=>b>0?(a/b*100):0;
+    const esc=(s)=>String(s==null?'':s).replace(/[&<>"']/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const safeUrl=(u)=>(/^https?:\/\//i.test(String(u||''))?esc(String(u)):'');
+    const roiCls=(r)=>r>=3?'g':r>=1?'m':r>0?'b':'na';
+    const roiClsB=(r,b)=>r>=(b||3)?'g':r>=1?'m':r>0?'b':'na';
+    const OBJ_TH={video_view:'สร้างการรับรู้ · Video Views',visit_profile:'สร้างการรับรู้ · Profile Visits',conversion:'Conversion',reach:'Reach',traffic:'Traffic'};
+    if(window.Chart){Chart.defaults.color='#63607e';Chart.defaults.borderColor='rgba(43,39,64,.07)';Chart.defaults.font.family='Kanit';}
+    let chGrowth, chProd;
+
+    function monthOptions(){const sel=document.getElementById('month'),now=new Date(),th=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+      for(let i=0;i<12;i++){const d=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth()-i,1));const v=d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0');const o=document.createElement('option');o.value=v;o.textContent=th[d.getUTCMonth()]+' '+d.getUTCFullYear();sel.appendChild(o);}}
+    function tab(n){document.querySelectorAll('.nav-btn').forEach(t=>t.classList.toggle('active',t.dataset.t===n));['overview','trend','product','ads','clips','affiliate','setup'].forEach(s=>document.getElementById(s).classList.toggle('active',s===n));}
+    document.getElementById('tabs').addEventListener('click',e=>{const b=e.target.closest('.nav-btn');if(b)tab(b.dataset.t);});
+
+    function kpi(label,val,sub,hl,cls){return `<div class="card kpi${hl?' hl':''}${cls?' '+cls:''}"><div class="klabel">${label}</div><div class="kval">${val}</div><div class="ksub">${sub||''}</div></div>`;}
+    function cmp(cur,prev){if(prev==null||prev===0||!isFinite(cur))return'';const d=(cur-prev)/Math.abs(prev)*100;if(!isFinite(d))return'';const cls=d>0.5?'up':d<-0.5?'down':'flat';const a=d>0.5?'▲':d<-0.5?'▼':'—';return `<span class="badge ${cls}">${a} ${Math.abs(d).toFixed(0)}%</span> <span class="muted">vs เดือนก่อน</span>`;}
+
+    function awareSpend(ads){return (ads||[]).filter(a=>a.gmv_ads<=0).reduce((s,a)=>s+a.spend,0);}
+    function awareAll(ads){return (ads||[]).filter(a=>a.gmv_ads<=0);}
+
+    function renderKpis(dto,prev){
+      const g=dto.gmvmax.total, aw=awareSpend(dto.ads), grand=g.cost+aw, bench=dto.benchmark||3;
+      const awAds=awareAll(dto.ads), awImpr=awAds.reduce((s,a)=>s+(a.impressions||0),0), ac=dto.adChannels||{creator:{creators:0,roi:0,spend:0}};
+      const liveP=pct(dto.gmvmax.live.gross_revenue,g.gross_revenue), cartP=100-liveP;
+      const pg=prev?prev.gmvmax.total:null;
+      const roiStat='<span class="badge '+(g.roi>=bench?'up':'down')+'">'+(g.roi>=bench?'▲ เหนือเกณฑ์ '+bench:'▼ ต่ำกว่าเกณฑ์ '+bench)+'</span>';
+      const blended=grand>0?g.gross_revenue/grand:0;   // ยอดขาย GMV Max ÷ ค่าแอดรวม (GMV Max + สร้างการรับรู้)
+      const blendStat='<span class="badge '+(blended>=bench?'up':'down')+'">'+(blended>=bench?'▲ เหนือเกณฑ์ '+bench:'▼ ต่ำกว่าเกณฑ์ '+bench)+'</span>';
+      const ins=dto.insights||{acos:0,claimPct:0};
+      document.getElementById('kpis').innerHTML =
+        kpi('ค่าแอด GMV Max',baht(g.cost),cmp(g.cost,pg&&pg.cost),true,'spend')+
+        kpi('ยอดขาย (GMV Max)',baht(g.gross_revenue),cmp(g.gross_revenue,pg&&pg.gross_revenue),true,'sales')+
+        kpi('ROI GMV Max',(g.roi||0).toFixed(2)+'x',roiStat,true)+
+        kpi('Blended ROI',(blended||0).toFixed(2)+'x',blendStat+' <span class="muted">รวม awareness</span>',true)+
+        kpi('ACoS · ค่าแอด/ยอดร้าน',(ins.acos||0).toFixed(1)+'%','ค่าแอดรวม ÷ ยอดขายร้านจริง',false,'spend')+
+        kpi('แอดเคลม / ยอดร้าน',(ins.claimPct||0).toFixed(0)+'%',ins.claimPct>=90?'<span class="badge down">⚠ เคลมเกือบทั้งร้าน</span>':'ยอดจาก Ads ÷ ยอดร้านจริง',false,'sales')+
+        kpi('คำสั่งซื้อ',numf(g.orders),g.orders?('ค่าแอด/ออเดอร์ '+baht(g.cost/g.orders)):'')+
+        kpi('สัดส่วนยอดขาย',liveP.toFixed(0)+' / '+cartP.toFixed(0)+'%','🔴 Live '+liveP.toFixed(1)+'% · 🛒 Product(VDO) '+cartP.toFixed(1)+'%')+
+        kpi('ค่าแอดสร้างการรับรู้',baht(aw),'View / Reach / Traffic',false,'spend')+
+        kpi('ค่าแอดรวมทุกประเภท',baht(grand),grand?('GMV Max '+pct(g.cost,grand).toFixed(0)+'% ของค่าแอด'):'',false,'spend')+
+        kpi('CPM สร้างการรับรู้',awImpr>0?baht(aw/awImpr*1000):'—','ค่าแอด/การเห็น 1,000 ครั้ง · ยิ่งถูกยิ่งดี',false,'spend')+
+        kpi('ครีเอเตอร์ยิงแอด',numf(ac.creator.creators)+' คน',ac.creator.spend?('รวมค่าแอดผ่านครีเอเตอร์ '+baht(ac.creator.spend)):'ช่องครีเอเตอร์ที่ยิง Product GMV Max')+
+        kpi('ROI ช่องครีเอเตอร์',(ac.creator.roi||0).toFixed(2)+'x','<span class="badge '+((ac.creator.roi||0)>=bench?'up':'down')+'">'+((ac.creator.roi||0)>=bench?'▲ เหนือเกณฑ์ '+bench:'▼ ต่ำกว่าเกณฑ์ '+bench)+'</span>',false,'sales');
+    }
+    function renderGmvPanel(gm){
+      const t=gm.total, liveP=pct(gm.live.gross_revenue,t.gross_revenue), cartP=100-liveP;
+      document.getElementById('gmvPanel').innerHTML=`
+        <span class="panel-tag tag-roi">งบ GMV Max · คิด ROI</span>
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin:6px 0 10px">
+          <div class="bignum">${baht(t.gross_revenue)}<small>ยอดขาย</small></div><div class="roi-pill ${roiCls(t.roi)==='g'?'':'m'}">ROI ${(t.roi||0).toFixed(2)}</div></div>
+        <div class="rowline"><span class="k">ค่าแอด</span><span class="v">${baht(t.cost)}</span></div>
+        <div class="rowline"><span class="k">คำสั่งซื้อ</span><span class="v">${numf(t.orders)}</span></div>
+        <div class="rowline"><span class="k">ค่าแอด / ออเดอร์</span><span class="v">${t.orders?baht(t.cost/t.orders):'—'}</span></div>
+        <div class="splitbar"><span style="width:${liveP}%;background:var(--live)">${liveP>=12?'Live '+liveP.toFixed(0)+'%':''}</span><span style="width:${cartP}%;background:var(--cart)">${cartP>=12?'Product '+cartP.toFixed(0)+'%':''}</span></div>
+        <div class="splitlegend">
+          <span><span class="dot" style="background:var(--live)"></span>Live GMV Max ${baht(gm.live.gross_revenue)} · ค่าแอด ${baht(gm.live.cost)} · <b class="roas ${roiCls(gm.live.roi)}">ROI ${(gm.live.roi||0).toFixed(2)}</b></span>
+          <span><span class="dot" style="background:var(--cart)"></span>Product GMV Max (VDO) ${baht(gm.product.gross_revenue)} · ค่าแอด ${baht(gm.product.cost)} · <b class="roas ${roiCls(gm.product.roi)}">ROI ${(gm.product.roi||0).toFixed(2)}</b></span>
+        </div>`;
+    }
+    function renderAwarePanel(ads){
+      const aw=awareAll(ads), cost=aw.reduce((s,a)=>s+a.spend,0), impr=aw.reduce((s,a)=>s+a.impressions,0), views=aw.reduce((s,a)=>s+a.video_views,0), clicks=aw.reduce((s,a)=>s+a.clicks,0);
+      const cpm=impr>0?cost/impr*1000:0;
+      document.getElementById('awarePanel').innerHTML=`
+        <span class="panel-tag tag-noroi">งบสร้างการรับรู้</span>
+        <div class="bignum" style="margin:6px 0 10px">${baht(cost)}<small>ค่าแอด</small></div>
+        <div class="rowline"><span class="k">Impressions</span><span class="v">${numf(impr)}</span></div>
+        <div class="rowline"><span class="k">Views (คลิป)</span><span class="v">${numf(views)}</span></div>
+        <div class="rowline"><span class="k">คลิก</span><span class="v">${numf(clicks)}</span></div>
+        <div class="rowline"><span class="k">CPM (ต้นทุน/1,000)</span><span class="v">${cpm.toFixed(2)}</span></div>
+        <div class="note" style="margin-top:6px">${aw.length} วัตถุประสงค์: ${esc(aw.map(a=>a.result_label||a.campaign_type).join(' · '))||'—'}</div>`;
+    }
+    function renderShopKpis(dto,prev){
+      const o=dto.overview, po=prev?prev.overview:null, refund=(dto.shops&&dto.shops[0]&&dto.shops[0].refund)||0;
+      document.getElementById('shopKpis').innerHTML=
+        kpi('ยอดขายร้านจริง',baht(o.gmv),cmp(o.gmv,po&&po.gmv),false,'sales')+
+        kpi('ออเดอร์ร้าน',numf(o.orders),cmp(o.orders,po&&po.orders))+
+        kpi('AOV (ยอด/บิล)',baht(o.aov),cmp(o.aov,po&&po.aov),false,'sales')+
+        kpi('ยอดคืน/ยกเลิก',baht(refund),o.gmv?('≈ '+pct(refund,o.gmv).toFixed(1)+'% ของยอดร้าน'):'');
+    }
+    // Shop sales split by REAL channel (ไลฟ์/คลิป/หน้าร้าน) — every source, not just GMV Max attribution.
+    function renderSource(o){
+      const c=(o&&o.channel)||{live:0,video:0,product_card:0}, tot=c.live+c.video+c.product_card;
+      const rows=[['🔴 ไลฟ์','var(--live)',c.live],['🎬 คลิป (วิดีโอ)','var(--video)',c.video],['🛒 หน้าร้าน','var(--gold)',c.product_card]];
+      document.getElementById('srcBody').innerHTML=
+        `<div class="note" style="margin:0 0 10px">ยอดขายร้านรวม ${baht(tot)} · แยกตามช่องทางจริง (ทุกที่มา รวมออร์แกนิก)</div>`+
+        rows.map(([nm,col,v])=>{const p=pct(v,tot);return `<div class="srcrow"><span class="nm">${nm}</span>
+          <div class="srcbar"><span style="width:${p}%;background:${col}"></span></div>
+          <span class="amt">${baht(v)} <small>· ${p.toFixed(0)}%</small></span></div>`;}).join('');
+    }
+    function renderProducts(dto){
+      const P=dto.products||[], bench=dto.benchmark||3;
+      document.getElementById('productCount').textContent=P.length?('('+P.length+' สินค้า)'):'';
+      const top=P.slice(0,10);
+      if(chProd)chProd.destroy();
+      chProd=new Chart(document.getElementById('chProduct'),{type:'bar',data:{labels:top.map(p=>p.product.length>24?p.product.slice(0,24)+'…':p.product),datasets:[{label:'ยอดขาย',data:top.map(p=>p.gmv),backgroundColor:'#2b8f9c',borderRadius:4}]},options:{indexAxis:'y',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>baht(c.raw)}}},scales:{x:{ticks:{callback:v=>bahtK(v)}}}}});
+      document.getElementById('productTable').innerHTML='<thead><tr><th>สินค้า</th><th>ยอดขาย</th><th>ออเดอร์</th><th>วิว</th><th>คลิป</th><th>ค่าแอด</th><th>ROI</th></tr></thead><tbody>'+
+        (P.length?P.map(p=>`<tr><td>${esc(p.product)}</td><td><b>${baht(p.gmv)}</b></td><td>${numf(p.orders)}</td><td>${numf(p.views)}</td><td>${numf(p.clips)}</td><td>${p.ad_cost>0?baht(p.ad_cost):'<span class="muted">—</span>'}</td><td class="roas ${roiClsB(p.ad_roi,bench)}">${p.ad_roi>0?p.ad_roi.toFixed(2)+'x':'<span class="muted">—</span>'}</td></tr>`).join(''):'<tr><td colspan="7" class="muted" style="text-align:center;padding:22px">ยังไม่มีข้อมูลสินค้า — กดซิงก์</td></tr>')+'</tbody>';
+    }
+    function renderAds(dto){
+      const gm=dto.gmvmax, aw=awareAll(dto.ads), ac=dto.adChannels||{brand:{spend:0,clips:0,roi:0},creator:{spend:0,clips:0,creators:0,roi:0},clips_total:0}, bench=dto.benchmark||3;
+      // GMV Max (คิด ROI) by type
+      const g=[];
+      if(gm.live.cost||gm.live.gross_revenue) g.push(['Live GMV Max','var(--live)',gm.live,'ยิงขายในไลฟ์ (ยอดรวม)']);
+      if(gm.product.cost||gm.product.gross_revenue) g.push(['Product GMV Max (VDO)','var(--cart)',gm.product,'ยิงขายผ่านคลิป/สินค้า']);
+      const gt=g.reduce((s,x)=>({spend:s.spend+x[2].cost,gmv:s.gmv+x[2].gross_revenue,orders:s.orders+x[2].orders}),{spend:0,gmv:0,orders:0});
+      const groi=gt.spend>0?gt.gmv/gt.spend:0;
+      document.getElementById('gmvAdsTable').innerHTML='<thead><tr><th>ประเภท</th><th>รายละเอียด</th><th>ค่าแอด</th><th>ยอดขาย</th><th>ออเดอร์</th><th>ROI</th></tr></thead><tbody>'+
+        g.map(([t,c,d,ex])=>`<tr><td><span class="chip"><span class="sw" style="background:${c}"></span>${t}</span></td><td class="muted" style="text-align:left">${ex}</td><td><b>${baht(d.cost)}</b></td><td>${baht(d.gross_revenue)}</td><td>${numf(d.orders)}</td><td class="roas ${roiClsB(d.roi,bench)}">${(d.roi||0).toFixed(2)}x</td></tr>`).join('')+
+        `<tr class="grand"><td>รวม GMV Max</td><td></td><td>${baht(gt.spend)}</td><td>${baht(gt.gmv)}</td><td>${numf(gt.orders)}</td><td class="roas ${roiClsB(groi,bench)}">${groi.toFixed(2)}x</td></tr></tbody>`;
+      // brand vs creator (Product GMV Max per-clip)
+      const b=ac.brand, cr=ac.creator, ts=(b.spend||0)+(cr.spend||0), bp=pct(b.spend,ts), cp=100-bp;
+      const liveCost=gm.live.cost||0, unattr=Math.max(0,(gm.product.cost||0)-ts), totalGmv=gm.total.cost||0;
+      document.getElementById('adChannelBody').innerHTML=
+        `<div class="note" style="margin:0 0 8px">ค่าแอด Product GMV Max รายคลิป ${baht(ts)} · ${numf(ac.clips_total)} คลิป</div>`+
+        `<div class="splitbar"><span style="width:${bp}%;background:var(--pri)">${bp>=12?'แบรนด์ '+bp.toFixed(0)+'%':''}</span><span style="width:${cp}%;background:var(--video)">${cp>=12?'ครีเอเตอร์ '+cp.toFixed(0)+'%':''}</span></div>`+
+        `<div class="splitlegend"><span><span class="dot" style="background:var(--pri)"></span>ช่องแบรนด์ ${baht(b.spend)} · ${numf(b.clips)} คลิป · <b class="roas ${roiClsB(b.roi,bench)}">ROI ${(b.roi||0).toFixed(2)}</b></span>`+
+        `<span><span class="dot" style="background:var(--video)"></span>ช่องครีเอเตอร์ ${baht(cr.spend)} · ${numf(cr.clips)} คลิป · ${numf(cr.creators)} คน · <b class="roas ${roiClsB(cr.roi,bench)}">ROI ${(cr.roi||0).toFixed(2)}</b></span></div>`+
+        `<div class="note" style="margin-top:11px;line-height:1.75;border-top:1px solid var(--hairline);padding-top:9px">แยกรายคลิปได้<b>เฉพาะ Product GMV Max</b> จึงไม่เท่ายอดรวม —`+
+        (liveCost>0?` ยังไม่รวม 🔴 Live GMV Max <b>${baht(liveCost)}</b> (ยิงในไลฟ์ TikTok แยกรายคน/คลิปไม่ได้)`:``)+
+        (unattr>1000?`${liveCost>0?' + ':' ยังไม่รวม '}Product อีก ${baht(unattr)} ที่ไม่ผูกกับคลิป`:``)+
+        ` → <b>รวม GMV Max ทั้งหมด ${baht(totalGmv)}</b></div>`;
+      // awareness by objective
+      const at=aw.reduce((s,a)=>({spend:s.spend+a.spend,impr:s.impr+(a.impressions||0),views:s.views+(a.video_views||0),v6:s.v6+(a.video_6s||0),v15:s.v15+(a.video_15s||0),pv:s.pv+(a.profile_visits||0),like:s.like+(a.likes||0),cm:s.cm+(a.comments||0),sh:s.sh+(a.shares||0)}),{spend:0,impr:0,views:0,v6:0,v15:0,pv:0,like:0,cm:0,sh:0});
+      document.getElementById('awareAdsTable').innerHTML='<thead><tr><th>วัตถุประสงค์</th><th>ค่าแอด</th><th>CPM</th><th>Impressions</th><th>Views</th><th>6s View</th><th>15s View</th><th>Profile Visit</th><th>Like</th><th>Comment</th><th>Share</th></tr></thead><tbody>'+
+        (aw.length?aw.map(a=>{const cpm=a.impressions>0?a.spend/a.impressions*1000:0;return `<tr><td>${esc(OBJ_TH[a.campaign_type]||a.campaign_type||a.result_label||'—')}</td><td><b>${baht(a.spend)}</b></td><td>${cpm.toFixed(2)}</td><td>${dc(a.impressions)}</td><td>${dc(a.video_views)}</td><td>${dc(a.video_6s)}</td><td>${dc(a.video_15s)}</td><td>${dc(a.profile_visits)}</td><td>${dc(a.likes)}</td><td>${dc(a.comments)}</td><td>${dc(a.shares)}</td></tr>`;}).join(''):'<tr><td colspan="11" class="muted" style="text-align:center;padding:18px">ไม่มีแคมเปญสร้างการรับรู้เดือนนี้</td></tr>')+
+        (aw.length?`<tr class="grand"><td>รวม</td><td>${baht(at.spend)}</td><td>${at.impr>0?(at.spend/at.impr*1000).toFixed(2):'—'}</td><td>${dc(at.impr)}</td><td>${dc(at.views)}</td><td>${dc(at.v6)}</td><td>${dc(at.v15)}</td><td>${dc(at.pv)}</td><td>${dc(at.like)}</td><td>${dc(at.cm)}</td><td>${dc(at.sh)}</td></tr>`:'')+'</tbody>';
+      document.getElementById('adsCount').textContent='('+numf(ac.clips_total)+' คลิปใช้งบ · '+numf(cr.creators)+' ครีเอเตอร์)';
+    }
+    function vRank(i){return `<span style="display:inline-block;min-width:24px;color:var(--muted);font-size:12px">#${i+1}</span>`;}
+    // Three per-clip leaderboards as horizontal card rows — cover thumbnail (TikTok oembed) that clicks
+    // through to the clip. "ทำยอด" = GMV Max ad-attributed; "engagement" = shop-side likes/comments/shares.
+    function vClipLink(u,id){ return (u&&id)?safeUrl('https://www.tiktok.com/@'+encodeURIComponent(u)+'/video/'+encodeURIComponent(id)):''; }
+    function vCard(r,i,metrics){
+      const link=vClipLink(r.username,r.video_id), cover=safeUrl(r.cover||'');
+      const play='<span class="playic"><svg width="30" height="30" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="rgba(20,16,40,.5)"/><path d="M10 8l6 4-6 4z" fill="#fff"/></svg></span>';
+      return `<a class="clip"${link?` href="${link}" target="_blank" rel="noopener"`:''}>
+        <div class="thumb">${cover?`<img src="${cover}" alt="" loading="lazy" onerror="this.style.display='none'">`:''}<span class="rank">#${i+1}</span>${play}</div>
+        <div class="b"><div class="who">@${esc(r.username||'—')}</div>${metrics}</div></a>`;
+    }
+    function vCardRow(pill,cnt,note,cards){ return cards?`<div class="obj-group"><div class="obj-head"><span class="pill">${pill}</span><span class="cnt">${cnt}</span></div><div class="cliprow">${cards}</div>${note?`<div class="note">${note}</div>`:''}</div>`:''; }
+    function renderVideos(dto){
+      const V=(dto.videos)||{benchmark:3,sales:[],engagement:[],reach:[]}, b=V.benchmark||3;
+      document.getElementById('clipCount').textContent = V.reach.length?('('+V.reach.length+' คลิป)'):'';
+      const host=document.getElementById('clipGroups');
+      if(!V.sales.length && !V.engagement.length && !V.reach.length){host.innerHTML='<div class="empty">ยังไม่มีข้อมูลคลิปเดือนนี้<br><span class="muted">กดซิงก์ในแท็บตั้งค่า</span></div>';return;}
+      const sales=V.sales.map((r,i)=>vCard(r,i,
+        `<div class="mrow"><span class="k">ROI</span><span class="roibig roas ${roiClsB(r.ad_roi,b)}">${(r.ad_roi||0).toFixed(2)}x${r.roi_ok?' ✓':''}</span></div>
+         <div class="mrow"><span class="k">ยอดขาย</span><span class="v">${bahtK(r.ad_gross_revenue)}</span></div>
+         <div class="mrow"><span class="k">ค่าแอด</span><span class="v">${bahtK(r.ad_cost)}</span></div>`)).join('');
+      const eng=V.engagement.map((r,i)=>vCard(r,i,
+        `<div class="mrow"><span class="k">❤️ ไลก์</span><span class="v roibig">${numf(r.likes)}</span></div>
+         <div class="mrow"><span class="k">💬 / 🔁</span><span class="v">${numf(r.comments)} / ${numf(r.shares)}</span></div>
+         <div class="mrow"><span class="k">👁️ วิว</span><span class="v">${numf(r.views)}</span></div>`)).join('');
+      const reach=V.reach.map((r,i)=>vCard(r,i,
+        `<div class="mrow"><span class="k">คะแนน</span><span class="v roibig">${(r.score||0).toFixed(0)}<small style="color:var(--muted);font-weight:400"> /100</small></span></div>
+         <div class="mrow"><span class="k">👁️ วิว</span><span class="v">${numf(r.views)}</span></div>
+         <div class="mrow"><span class="k">CTR · 💬 · 🔁</span><span class="v">${(Number(r.ctr)*100).toFixed(1)}% · ${numf(r.comments)} · ${numf(r.shares)}</span></div>`)).join('');
+      host.innerHTML=
+        vCardRow('🏆 คลิปทำยอดขาย + ROI', `คัดเฉพาะคลิปที่ ROI ≥ ${b} · GMV Max แบบสินค้า · ${V.sales.length} คลิป`,
+          `คลิปที่ควรอัดงบต่อ — ใช้แอด ทำยอดได้เยอะ และ <b class="roas g">ROI ≥ ${b}</b> (คุ้มเกณฑ์) · กดที่ปกเพื่อเปิดคลิปใน TikTok · แบบไลฟ์ดูรวมในภาพรวม`, sales)+
+        vCardRow('💬 คลิปทำ engagement', `ไลก์ · คอมเมนต์ · แชร์ · ${V.engagement.length} คลิป`,
+          'เก็บจากคลิปเด่น (TikTok จำกัดจำนวนครั้งเรียกข้อมูลรายคลิป) · ไม่มีค่า "เซฟ"', eng)+
+        vCardRow('👁️ คลิปยอดวิว / การรับรู้', `คะแนนรวม 0-100 · ${V.reach.length} คลิป`,
+          'คะแนน = เฉลี่ยเกณฑ์ ยอดวิว · CTR · คอมเมนต์ · แชร์ (ปรับเป็น 0-100) · TikTok ไม่ส่ง "อัตราการดู" มา จึงใช้ CTR+engagement แทน', reach);
+    }
+
+    const THM=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+    function renderAffiliate(dto){
+      const A=dto.affiliate||{locked:true,counts:{videos:0,lives:0},growth:[],topVideo:[],topLive:[]};
+      document.getElementById('affKpis').innerHTML=
+        kpi('คอนเทนต์ Affiliate ติดสินค้า · คลิป',numf(A.counts.videos),'คลิปครีเอเตอร์ที่ติดสินค้า Lilsheep')+
+        kpi('คอนเทนต์ Affiliate ติดสินค้า · ไลฟ์',numf(A.counts.lives),'ไลฟ์ครีเอเตอร์ที่ติดสินค้า Lilsheep');
+      const g=A.growth||[], labels=g.map(x=>{const [y,m]=String(x.month).split('-').map(Number);return THM[(m||1)-1]+' '+String(y).slice(2);});
+      if(chGrowth)chGrowth.destroy();
+      chGrowth=new Chart(document.getElementById('chGrowth'),{type:'bar',data:{labels,datasets:[
+        {label:'ยอดขาย Affiliate · คลิป',data:g.map(x=>x.gmv_video),backgroundColor:'#8b82d6',borderRadius:4},
+        {label:'ยอดขาย Affiliate · ไลฟ์',data:g.map(x=>x.gmv_live),backgroundColor:'#e0688a',borderRadius:4}]},
+        options:{plugins:{legend:{position:'bottom',labels:{boxWidth:12}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+baht(c.raw)}}},scales:{x:{stacked:true},y:{stacked:true,ticks:{callback:v=>bahtK(v)}}}}});
+      const vr=A.topVideo||[], lr=A.topLive||[];
+      document.getElementById('affVideo').innerHTML='<thead><tr><th>ครีเอเตอร์</th><th>ยอดขาย</th><th>ออเดอร์</th><th>คลิป</th><th>วิว</th></tr></thead><tbody>'+
+        (vr.length?vr.map((r,i)=>`<tr><td><span class="chip">${vRank(i)}<b>@${esc(r.username)}</b></span></td><td><b>${baht(r.gmv)}</b></td><td>${numf(r.orders)}</td><td>${numf(r.videos)}</td><td>${numf(r.views)}</td></tr>`).join(''):'<tr><td colspan="5" class="muted" style="text-align:center;padding:22px">ยังไม่มีข้อมูล — กดซิงก์</td></tr>')+'</tbody>';
+      document.getElementById('affLive').innerHTML='<thead><tr><th>ครีเอเตอร์</th><th>ยอดขาย (ไลฟ์)</th><th>ออเดอร์</th><th>รอบไลฟ์</th></tr></thead><tbody>'+
+        (lr.length?lr.map((r,i)=>`<tr><td><span class="chip">${vRank(i)}<b>@${esc(r.username)}</b></span></td><td><b>${baht(r.gmv)}</b></td><td>${numf(r.orders)}</td><td>${numf(r.lives)}</td></tr>`).join(''):'<tr><td colspan="4" class="muted" style="text-align:center;padding:22px">ยังไม่มีข้อมูล — กดซิงก์</td></tr>')+'</tbody>';
+    }
+
+    function renderTrend(dto){
+      const T=dto.trend||[], bench=dto.benchmark||3;
+      document.getElementById('trendRange').textContent = T.length?(T[0].month+' → '+T[T.length-1].month):'';
+      if(!T.length){document.getElementById('trendTable').innerHTML='<tbody><tr><td class="muted" style="padding:22px;text-align:center">ยังไม่มีข้อมูลย้อนหลัง — กดซิงก์</td></tr></tbody>';return;}
+      const labels=T.map(x=>{const [y,m]=String(x.month).split('-').map(Number);return THM[(m||1)-1]+' '+String(y).slice(2);});
+      const mk=(id,cfg)=>{if(window['_'+id])window['_'+id].destroy();window['_'+id]=new Chart(document.getElementById(id),cfg);};
+      mk('chTrendSales',{type:'line',data:{labels,datasets:[
+        {label:'ยอดขายร้านรวม',data:T.map(x=>x.shop_gmv),borderColor:'#8b82d6',backgroundColor:'#8b82d6',tension:.35,borderWidth:2,pointRadius:2},
+        {label:'ยอดขายจาก Ads',data:T.map(x=>x.gmvmax_gmv),borderColor:'#2b8f9c',backgroundColor:'#2b8f9c',tension:.35,borderWidth:2,pointRadius:2},
+        {label:'ค่าแอดรวม',data:T.map(x=>x.total_spend),borderColor:'#d06f88',backgroundColor:'#d06f88',borderDash:[5,4],tension:.35,borderWidth:2,pointRadius:0}]},
+        options:{plugins:{legend:{position:'bottom',labels:{boxWidth:12}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+baht(c.raw)}}},scales:{y:{ticks:{callback:v=>bahtK(v)}}}}});
+      mk('chTrendSpend',{type:'bar',data:{labels,datasets:[
+        {label:'ค่าแอด GMV Max',data:T.map(x=>x.gmvmax_cost),backgroundColor:'#d06f88',borderRadius:4},
+        {label:'ค่าแอดสร้างการรับรู้',data:T.map(x=>x.aware_spend),backgroundColor:'#8b82d6',borderRadius:4}]},
+        options:{plugins:{legend:{position:'bottom',labels:{boxWidth:12}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+baht(c.raw)}}},scales:{x:{stacked:true},y:{stacked:true,ticks:{callback:v=>bahtK(v)}}}}});
+      // 3 lines only (ROI รวม · Blended · เกณฑ์) — Live/Product ROI is on the overview panel, keeps this chart readable
+      mk('chTrendRoi',{type:'line',data:{labels,datasets:[
+        {label:'ROI รวม',data:T.map(x=>x.gmvmax_roi),borderColor:'#2b8f9c',backgroundColor:'#2b8f9c',tension:.35,borderWidth:2.5,pointRadius:2},
+        {label:'Blended (รวม awareness)',data:T.map(x=>x.blended_roi),borderColor:'#8b82d6',backgroundColor:'#8b82d6',tension:.35,borderWidth:2,pointRadius:2},
+        {label:'เกณฑ์ '+bench,data:T.map(()=>bench),borderColor:'#d9545a',borderDash:[6,5],pointRadius:0,borderWidth:1.5}]},
+        options:{plugins:{legend:{position:'bottom',labels:{boxWidth:12}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+(Number(c.raw)||0).toFixed(2)}}},scales:{y:{beginAtZero:true}}}});
+      document.getElementById('trendTable').innerHTML='<thead><tr><th>เดือน</th><th>ยอดร้าน</th><th>ยอดจาก Ads</th><th>ค่าแอดรวม</th><th>ROI</th><th>Blended</th></tr></thead><tbody>'+
+        T.map(x=>`<tr><td>${esc(x.month)}</td><td>${baht(x.shop_gmv)}</td><td>${baht(x.gmvmax_gmv)}</td><td>${baht(x.total_spend)}</td><td class="roas ${roiClsB(x.gmvmax_roi,bench)}">${(x.gmvmax_roi||0).toFixed(2)}</td><td class="roas ${roiClsB(x.blended_roi,bench)}">${(x.blended_roi||0).toFixed(2)}</td></tr>`).join('')+'</tbody>';
+    }
+
+    // One-line bottom line + auto alerts/highlights — turns the numbers into a decision at a glance.
+    function renderInsights(dto){
+      const ins=dto.insights||{alerts:[],highlights:[],acos:0,claimPct:0,totalSpend:0};
+      const g=dto.gmvmax.total, o=dto.overview||{};
+      const grand=g.cost+awareSpend(dto.ads), blended=grand>0?g.gross_revenue/grand:0;
+      const mo=document.getElementById('month').selectedOptions[0].textContent;
+      const alerts=(ins.alerts||[]).map(a=>`<span class="chipA warn">⚠ ${esc(a)}</span>`).join('');
+      const highs=(ins.highlights||[]).map(h=>`<span class="chipA good">✓ ${esc(h)}</span>`).join('');
+      const el=document.getElementById('insights'); el.style.display='';
+      el.innerHTML=`<div class="line">${esc(mo)} — ยอดร้าน <b>${baht(o.gmv)}</b> · ยอดจาก Ads ${baht(g.gross_revenue)} (${(ins.claimPct||0).toFixed(0)}%) · ค่าแอดรวม ${baht(ins.totalSpend)} (${(ins.acos||0).toFixed(0)}% ของยอดร้าน) · ROI GMV Max <b class="roas ${roiCls(g.roi)}">${(g.roi||0).toFixed(2)}</b> · Blended ${blended.toFixed(2)}</div>`+((alerts||highs)?`<div class="chips">${alerts}${highs}</div>`:'');
+    }
+
+    let prevCache={};
+    async function fetchMonth(m){const r=await fetch('/api/dashboard?month='+m);if(r.status===401){location.href='/login';throw 0;}if(!r.ok)return null;return r.json();}
+    function prevMonth(m){const [y,mo]=m.split('-').map(Number);const d=new Date(Date.UTC(y,mo-2,1));return d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0');}
+    async function load(){
+      const m=document.getElementById('month').value;
+      document.getElementById('ovMonth').textContent=document.getElementById('month').selectedOptions[0].textContent;
+      document.body.classList.add('loading');
+      try{
+        const dto=await fetchMonth(m); if(!dto)return;
+        if(!dto.gmvmax) dto.gmvmax={live:{cost:0,gross_revenue:0,roi:0,orders:0},product:{cost:0,gross_revenue:0,roi:0,orders:0},total:{cost:0,gross_revenue:0,roi:0,orders:0}};
+        let prev=prevCache[m]; if(prev===undefined){prev=await fetchMonth(prevMonth(m));prevCache[m]=prev;}
+        renderInsights(dto); renderKpis(dto,prev); renderShopKpis(dto,prev); renderGmvPanel(dto.gmvmax); renderAwarePanel(dto.ads); renderSource(dto.overview);
+        renderAds(dto); renderVideos(dto); renderAffiliate(dto); renderTrend(dto); renderProducts(dto);
+      } finally { document.body.classList.remove('loading'); }
+    }
+    async function refreshStatus(){
+      const s=await fetch('/api/tiktok/status').then(r=>r.json()).catch(()=>({}));
+      const cloud=document.getElementById('cloud');
+      if(s.connected){cloud.className='cloud ok';document.getElementById('cloudtxt').textContent=s.lastSync?('ซิงก์ '+new Date(s.lastSync).toLocaleDateString('th-TH',{day:'numeric',month:'short'})):'เชื่อมต่อแล้ว';document.getElementById('connState').innerHTML='✅ เชื่อมต่อ Report Pilot แล้ว'+(s.lastSync?' · ซิงก์ล่าสุด '+new Date(s.lastSync).toLocaleString('th-TH'):'');}
+      else{cloud.className='cloud err';document.getElementById('cloudtxt').textContent='ยังไม่เชื่อมต่อ';document.getElementById('connState').textContent='ยังไม่ได้เชื่อมต่อ Report Pilot — วางโทเคนด้านล่าง';}
+    }
+    document.getElementById('saveToken').addEventListener('click',async()=>{const key=document.getElementById('token').value.trim();const r=await fetch('/api/tiktok/connect',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({key})}).then(r=>r.json());document.getElementById('connState').textContent=r.ok?'✅ บันทึกโทเคนแล้ว':('ผิดพลาด: '+(r.error||''));if(r.ok){document.getElementById('token').value='';refreshStatus();}});
+    document.getElementById('syncNow').addEventListener('click',async(e)=>{e.target.disabled=true;document.getElementById('syncState').textContent='กำลังซิงก์… (อาจใช้เวลา 2–3 นาที อย่าปิดหน้านี้)';const m=document.getElementById('month').value;try{const r=await fetch('/api/tiktok/sync',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({months:[m]})}).then(r=>r.json());document.getElementById('syncState').textContent=r.ok?'✅ ซิงก์เสร็จแล้ว':('ผิดพลาด: '+(r.error||''));if(r.ok){prevCache={};load();refreshStatus();}}catch(_){document.getElementById('syncState').textContent='ซิงก์นานเกินกำหนด ลองใหม่';}e.target.disabled=false;});
+
+    document.getElementById('month').addEventListener('change',load);
+    monthOptions(); refreshStatus(); load();
+  </script>
+</body></html>
