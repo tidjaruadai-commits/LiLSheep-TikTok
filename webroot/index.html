@@ -229,24 +229,28 @@
       const awAds=awareAll(dto.ads), awImpr=awAds.reduce((s,a)=>s+(a.impressions||0),0), ac=dto.adChannels||{creator:{creators:0,roi:0,spend:0}};
       const liveP=pct(dto.gmvmax.live.gross_revenue,g.gross_revenue), cartP=100-liveP;
       const pg=prev?prev.gmvmax.total:null;
-      const roiStat='<span class="badge '+(g.roi>=bench?'up':'down')+'">'+(g.roi>=bench?'▲ เหนือเกณฑ์ '+bench:'▼ ต่ำกว่าเกณฑ์ '+bench)+'</span>';
+      // No GMV Max rows at all (store not linked, or none ran this month) reads as "no data",
+      // never as a ROI of 0.00x failing the benchmark — those are different facts.
+      const hasGmv=g.cost>0||g.gross_revenue>0;
+      const benchBadge=(v,ok)=>ok?'<span class="badge '+(v>=bench?'up':'down')+'">'+(v>=bench?'▲ เหนือเกณฑ์ '+bench:'▼ ต่ำกว่าเกณฑ์ '+bench)+'</span>':'<span class="badge flat">ยังไม่มีข้อมูล GMV Max</span>';
+      const roiStat=benchBadge(g.roi,hasGmv);
       const blended=grand>0?g.gross_revenue/grand:0;   // ยอดขาย GMV Max ÷ ค่าแอดรวม (GMV Max + สร้างการรับรู้)
-      const blendStat='<span class="badge '+(blended>=bench?'up':'down')+'">'+(blended>=bench?'▲ เหนือเกณฑ์ '+bench:'▼ ต่ำกว่าเกณฑ์ '+bench)+'</span>';
+      const blendStat=benchBadge(blended,hasGmv);
       const ins=dto.insights||{acos:0,claimPct:0};
       document.getElementById('kpis').innerHTML =
         kpi('ค่าแอด GMV Max',baht(g.cost),cmp(g.cost,pg&&pg.cost),true,'spend')+
         kpi('ยอดขาย (GMV Max)',baht(g.gross_revenue),cmp(g.gross_revenue,pg&&pg.gross_revenue),true,'sales')+
-        kpi('ROI GMV Max',(g.roi||0).toFixed(2)+'x',roiStat,true)+
-        kpi('Blended ROI',(blended||0).toFixed(2)+'x',blendStat+' <span class="muted">รวม awareness</span>',true)+
+        kpi('ROI GMV Max',hasGmv?(g.roi||0).toFixed(2)+'x':'—',roiStat,true)+
+        kpi('Blended ROI',hasGmv?(blended||0).toFixed(2)+'x':'—',blendStat+' <span class="muted">รวม awareness</span>',true)+
         kpi('ACoS · ค่าแอด/ยอดร้าน',(ins.acos||0).toFixed(1)+'%','ค่าแอดรวม ÷ ยอดขายร้านจริง',false,'spend')+
         kpi('แอดเคลม / ยอดร้าน',(ins.claimPct||0).toFixed(0)+'%',ins.claimPct>=90?'<span class="badge down">⚠ เคลมเกือบทั้งร้าน</span>':'ยอดจาก Ads ÷ ยอดร้านจริง',false,'sales')+
         kpi('คำสั่งซื้อ',numf(g.orders),g.orders?('ค่าแอด/ออเดอร์ '+baht(g.cost/g.orders)):'')+
-        kpi('สัดส่วนยอดขาย',liveP.toFixed(0)+' / '+cartP.toFixed(0)+'%','🔴 Live '+liveP.toFixed(1)+'% · 🛒 Product(VDO) '+cartP.toFixed(1)+'%')+
+        kpi('สัดส่วนยอดขาย',hasGmv?liveP.toFixed(0)+' / '+cartP.toFixed(0)+'%':'—',hasGmv?'🔴 Live '+liveP.toFixed(1)+'% · 🛒 Product(VDO) '+cartP.toFixed(1)+'%':'<span class="muted">แยก Live / Product ได้เมื่อมี GMV Max</span>')+
         kpi('ค่าแอดสร้างการรับรู้',baht(aw),'View / Reach / Traffic',false,'spend')+
         kpi('ค่าแอดรวมทุกประเภท',baht(grand),grand?('GMV Max '+pct(g.cost,grand).toFixed(0)+'% ของค่าแอด'):'',false,'spend')+
         kpi('CPM สร้างการรับรู้',awImpr>0?baht(aw/awImpr*1000):'—','ค่าแอด/การเห็น 1,000 ครั้ง · ยิ่งถูกยิ่งดี',false,'spend')+
         kpi('ครีเอเตอร์ยิงแอด',numf(ac.creator.creators)+' คน',ac.creator.spend?('รวมค่าแอดผ่านครีเอเตอร์ '+baht(ac.creator.spend)):'ช่องครีเอเตอร์ที่ยิง Product GMV Max')+
-        kpi('ROI ช่องครีเอเตอร์',(ac.creator.roi||0).toFixed(2)+'x','<span class="badge '+((ac.creator.roi||0)>=bench?'up':'down')+'">'+((ac.creator.roi||0)>=bench?'▲ เหนือเกณฑ์ '+bench:'▼ ต่ำกว่าเกณฑ์ '+bench)+'</span>',false,'sales');
+        kpi('ROI ช่องครีเอเตอร์',ac.creator.spend>0?(ac.creator.roi||0).toFixed(2)+'x':'—',benchBadge(ac.creator.roi||0,ac.creator.spend>0),false,'sales');
     }
     function renderGmvPanel(gm){
       const t=gm.total, liveP=pct(gm.live.gross_revenue,t.gross_revenue), cartP=100-liveP;
