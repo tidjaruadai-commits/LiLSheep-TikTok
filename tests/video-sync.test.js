@@ -190,11 +190,42 @@ test('syncVideos stops fetching engagement details once the detail budget is spe
   let detailCalls = 0;
   const client = makeClient({ fetchShopVideoDetail: async () => { detailCalls++; return { views: 1, likes: 1, comments: 0, shares: 0, new_followers: 0 }; } });
   const fakeFetch = async () => ({ status: 201, async text() { return '[]'; }, async json() { return []; } });
-  let n = 0;
-  const now = () => (n++ === 0 ? 0 : 999999);   // budget clock jumps past the limit right after the first detail
-  const res = await syncVideos({ cfg, client, clientId: 'uuid-1', advertiserIds: ['adv'], months: ['2026-08'], fetchImpl: fakeFetch, detailTopN: 5, detailBudgetMs: 10, now, sleep: async () => {} });
+  // A real clock the detail call advances, not a call-counter: the test must not care how many
+  // times the code happens to read now().
+  let t = 0;
+  const now = () => t;
+  const client2 = makeClient({ fetchShopVideoDetail: async () => { t += 100; detailCalls++; return { views: 1, likes: 1, comments: 0, shares: 0, new_followers: 0 }; } });
+  const res = await syncVideos({ cfg, client: client2, clientId: 'uuid-1', advertiserIds: ['adv'], months: ['2026-08'], fetchImpl: fakeFetch, detailTopN: 5, detailBudgetMs: 10, now, sleep: async () => {} });
   assert.equal(res.ok, true);
   assert.equal(detailCalls, 1, 'only the first clip detail is fetched before the budget is spent');
+});
+
+test('the detail budget is a pool for the whole run, not a fresh allowance per month', async () => {
+  // It used to restart on every month, so syncing 2 months spent 2 full budgets and a run the
+  // caller had bounded at 270s could run past 400s — past the point Vercel kills the function,
+  // which is what left the dashboard stuck on "กำลังซิงก์…".
+  const seen = [];
+  let t = 0;
+  const now = () => t;
+  const client = makeClient({
+    fetchShopVideoDetail: async (_c, videoId, month) => { t += 100; seen.push(month); return { views: 1, likes: 1, comments: 0, shares: 0, new_followers: 0 }; },
+  });
+  const fakeFetch = async () => ({ status: 201, async text() { return '[]'; }, async json() { return []; } });
+  await syncVideos({ cfg, client, clientId: 'uuid-1', advertiserIds: ['adv'], months: ['2026-08', '2026-07'],
+    fetchImpl: fakeFetch, detailTopN: 5, detailBudgetMs: 10, now, sleep: async () => {}, fetchCover: async () => null });
+  assert.deepEqual(seen, ['2026-08'], 'the first month spent the pool; the second gets no calls at all');
+});
+
+test('the cover budget is a pool for the whole run too', async () => {
+  let t = 0;
+  const now = () => t;
+  const client = makeClient({ fetchShopVideoDetail: async () => { throw new Error('Too many requests'); } });
+  const fakeFetch = async () => ({ status: 201, async text() { return '[]'; }, async json() { return []; } });
+  const coverMonths = [];
+  await syncVideos({ cfg, client, clientId: 'uuid-1', advertiserIds: ['adv'], months: ['2026-08', '2026-07'],
+    fetchImpl: fakeFetch, detailTopN: 0, detailBudgetMs: 0, coverBudgetMs: 10, now, sleep: async () => {},
+    fetchCover: async () => { t += 100; coverMonths.push(t); return null; } });
+  assert.equal(coverMonths.length, 1, 'one cover fetch drained the pool; the second month fetches none');
 });
 
 test('syncVideos merges stored engagement into the upsert (daily runs accumulate, never wipe, engagement)', async () => {

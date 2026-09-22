@@ -89,7 +89,11 @@ export function createReportPilotClient({ base = 'https://api.tidjaruad.co', get
     let json = null; try { json = text ? JSON.parse(text) : null; } catch { json = null; }
     if (resp.status < 200 || resp.status >= 300) {
       const e = new Error((json && (json.detail || json.message || json.error)) || `Report Pilot error (HTTP ${resp.status})`);
-      e.code = 'RP_ERROR'; throw e;
+      e.code = 'RP_ERROR';
+      // TikTok's numeric code, when the gateway forwarded its body with the status rather than
+      // as a 200. Callers key retry decisions off it (see APP_GROUP_RATE_LIMIT).
+      e.ttCode = json && json.code;
+      throw e;
     }
     return json;
   }
@@ -151,8 +155,15 @@ export function createReportPilotClient({ base = 'https://api.tidjaruad.co', get
   function ttError(json, fallback) {
     const e = new Error((json && json.message) || fallback);
     e.code = 'TT_ERROR';
+    e.ttCode = json && json.code;   // TikTok's own numeric code — 36009002 is the app-wide quota
     return e;
   }
+
+  // TikTok's shared app-group rate limit: a quota spread across every client of the app, not a
+  // burst we caused. Measured: a 10 s backoff still failed 9 tries out of 10, and a single
+  // isolated call was still refused a day later. Waiting inside one run therefore buys nothing
+  // and spends the very thing that is exhausted — it only costs the run ~10 s per clip.
+  const APP_GROUP_RATE_LIMIT = 36009002;
 
   // The client's OWN shop, which gmv_max/store/list does not return (see getGmvMaxStores).
   // Additive and never fatal: a client with no shop connected still gets the granted list.
@@ -318,6 +329,10 @@ export function createReportPilotClient({ base = 'https://api.tidjaruad.co', get
         return t;
       } catch (e) {
         lastErr = e;
+        // The app-wide quota does not recover inside a run, so backing off just burns the
+        // serverless budget one clip at a time. Give up on this clip immediately; the daily
+        // cron re-measures the open month anyway.
+        if (e && e.ttCode === APP_GROUP_RATE_LIMIT) throw e;
         if (attempt < retries) { await sleep(backoffMs); continue; }
         throw e;
       }

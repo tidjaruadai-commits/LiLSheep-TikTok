@@ -137,3 +137,40 @@ test('fetchShopVideoDetail retries after a rate-limit error (backing off via the
   assert.equal(slept, 1);
   assert.equal(d.views, 1);
 });
+
+test('fetchShopVideoDetail does NOT back off on the app-wide quota (36009002) — it never recovers inside a run', async () => {
+  // Measured: a 10 s backoff still failed 9 tries out of 10, and a single isolated call was
+  // refused a day later. Sleeping on it only spends the serverless budget, ~10 s per clip, on
+  // a quota shared with every other client of the app.
+  let attempts = 0, slept = 0;
+  const c = clientWith((p) => {
+    if (p.endsWith('/performance')) {
+      attempts++;
+      return { status: 429, body: { code: 36009002, message: 'Too many requests. This app has exceeded a shared app-group rate limit.' } };
+    }
+    return { status: 404, body: {} };
+  });
+  await assert.rejects(
+    () => c.fetchShopVideoDetail('uuid-1', 'vid', '2026-08', { retries: 2, backoffMs: 10000, sleep: async () => { slept++; } }),
+    /shared app-group rate limit/,
+  );
+  assert.equal(attempts, 1, 'one attempt, then give up on this clip');
+  assert.equal(slept, 0, 'no backoff spent waiting for a quota that does not reset within the run');
+});
+
+test('the app-wide quota is recognised when TikTok reports it as HTTP 200 with a non-zero code too', async () => {
+  let attempts = 0, slept = 0;
+  const c = clientWith((p) => {
+    if (p.endsWith('/performance')) {
+      attempts++;
+      return { status: 200, body: { code: 36009002, message: 'Too many requests. This app has exceeded a shared app-group rate limit.' } };
+    }
+    return { status: 404, body: {} };
+  });
+  await assert.rejects(
+    () => c.fetchShopVideoDetail('uuid-1', 'vid', '2026-08', { retries: 2, backoffMs: 10000, sleep: async () => { slept++; } }),
+    /shared app-group rate limit/,
+  );
+  assert.equal(attempts, 1);
+  assert.equal(slept, 0);
+});
