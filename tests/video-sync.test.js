@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mapShopVideos, mergeAdItems, mergeEngagement, keepEngagement, keepCovers, clipUrl, fetchOembedThumbnail, syncVideos } from '../lib/video-sync.js';
+import { mapShopVideos, mergeAdItems, mergeEngagement, keepEngagement, keepCovers, clipUrl, fetchOembedThumbnail, syncVideos, isOpenMonth } from '../lib/video-sync.js';
 
 // Real August 2026 rows from the live shop_videos list (values arrive as STRINGS from TikTok).
 const rawVideos = [
@@ -249,31 +249,74 @@ test('syncVideos isolates a failed month (shop-videos fetch throws) without abor
   assert.ok(res.results.some((r) => r.month === '2026-07' && r.error === 'gateway stalled'));
 });
 
-test('syncVideos spends its detail calls on clips it has never measured, not on ones already stored', async () => {
-  // TikTok caps the per-clip endpoint with a rate limit shared across the WHOLE app
-  // (HTTP 429, code 36009002 "shared app-group rate limit"). Observed on Lilsheep
-  // 2026-09-21: 18 failures in 100 seconds, and a single isolated call still refused a
-  // day later. keepEngagement already stores what we measure for good, so re-measuring a
-  // clip buys nothing and burns quota every other client shares. Measure once, ever.
+// --- Engagement measurement policy -------------------------------------------------------
+// TikTok caps shop_videos/{id}/performance with a rate limit shared across the WHOLE app
+// (HTTP 429, code 36009002 "shared app-group rate limit"). Observed on Lilsheep 2026-09-21:
+// 18 failures in 100 seconds, and a single isolated call still refused a day later. So the
+// calls we do spend have to be the right ones.
+
+const AUG = Date.UTC(2026, 7, 24);   // 2026-08-24 — inside August
+const SEP = Date.UTC(2026, 8, 22);   // 2026-09-22 — August has closed
+
+test('isOpenMonth: the current month is open, an earlier one is closed', () => {
+  assert.equal(isOpenMonth('2026-09', SEP), true);
+  assert.equal(isOpenMonth('2026-08', SEP), false);
+  assert.equal(isOpenMonth('2026-08', AUG), true);
+});
+
+test('a CLOSED month spends nothing once its top-N is already measured', async () => {
+  // The whole point: a finished month must converge to zero calls. Ranking happens before the
+  // already-measured filter, so a measured top clip is simply skipped — the budget must NOT
+  // slide down to clip #2, which would spend the same quota on a worse clip every single run.
   const seen = [];
   const client = makeClient({
-    fetchShopVideoDetail: async (_clientId, videoId) => {
-      seen.push(String(videoId));
-      return { views: 1, likes: 1, comments: 0, shares: 0, new_followers: 0 };
-    },
+    fetchShopVideoDetail: async (_c, videoId) => { seen.push(String(videoId)); return { views: 1, likes: 1, comments: 0, shares: 0, new_followers: 0 }; },
   });
   const fakeFetch = async (url, opts = {}) => {
     const u = String(url);
     if (!opts.method && u.includes('/m039_video_monthly') && u.includes('select=video_id')) {
-      // the highest-views clip was already measured on an earlier run
       return { status: 200, async text() { return JSON.stringify([
         { video_id: '7642362725158440210', likes: 11, comments: 10, shares: 9, new_followers: 8 },
       ]); } };
     }
     return { status: 201, async text() { return '[]'; }, async json() { return []; } };
   };
-  const res = await syncVideos({ cfg, client, clientId: 'uuid-1', advertiserIds: ['adv'], months: ['2026-08'], fetchImpl: fakeFetch, detailTopN: 1, sleep: async () => {} });
+  const res = await syncVideos({ cfg, client, clientId: 'uuid-1', advertiserIds: ['adv'], months: ['2026-08'], fetchImpl: fakeFetch, detailTopN: 1, now: () => SEP, sleep: async () => {} });
   assert.equal(res.ok, true);
-  assert.ok(!seen.includes('7642362725158440210'), 'already-measured clip must not be re-measured');
-  assert.deepEqual(seen, ['7574043265901595922'], 'the call goes to the clip that has no engagement yet');
+  assert.deepEqual(seen, [], 'top clip already measured and the month is closed — no quota spent');
+});
+
+test('a CLOSED month still measures a top clip that has never been measured', async () => {
+  const seen = [];
+  const client = makeClient({
+    fetchShopVideoDetail: async (_c, videoId) => { seen.push(String(videoId)); return { views: 1, likes: 1, comments: 0, shares: 0, new_followers: 0 }; },
+  });
+  const fakeFetch = async (url, opts = {}) => {
+    const u = String(url);
+    if (!opts.method && u.includes('/m039_video_monthly') && u.includes('select=video_id')) return { status: 200, async text() { return '[]'; } };
+    return { status: 201, async text() { return '[]'; }, async json() { return []; } };
+  };
+  await syncVideos({ cfg, client, clientId: 'uuid-1', advertiserIds: ['adv'], months: ['2026-08'], fetchImpl: fakeFetch, detailTopN: 1, now: () => SEP, sleep: async () => {} });
+  assert.deepEqual(seen, ['7642362725158440210'], 'the highest-views clip, nothing stored for it');
+});
+
+test('an OPEN month re-measures even a clip that already has engagement stored', async () => {
+  // The detail call is windowed to the month, so a value stored on the 2nd covers only the
+  // 1st-2nd. Freezing that would leave the clip permanently short; the daily cron must keep
+  // topping it up until the month closes.
+  const seen = [];
+  const client = makeClient({
+    fetchShopVideoDetail: async (_c, videoId) => { seen.push(String(videoId)); return { views: 1, likes: 99, comments: 0, shares: 0, new_followers: 0 }; },
+  });
+  const fakeFetch = async (url, opts = {}) => {
+    const u = String(url);
+    if (!opts.method && u.includes('/m039_video_monthly') && u.includes('select=video_id')) {
+      return { status: 200, async text() { return JSON.stringify([
+        { video_id: '7642362725158440210', likes: 11, comments: 10, shares: 9, new_followers: 8 },
+      ]); } };
+    }
+    return { status: 201, async text() { return '[]'; }, async json() { return []; } };
+  };
+  await syncVideos({ cfg, client, clientId: 'uuid-1', advertiserIds: ['adv'], months: ['2026-08'], fetchImpl: fakeFetch, detailTopN: 1, now: () => AUG, sleep: async () => {} });
+  assert.deepEqual(seen, ['7642362725158440210'], 'August is still open — re-measured despite a stored value');
 });

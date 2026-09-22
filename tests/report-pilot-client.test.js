@@ -255,3 +255,47 @@ test('getGmvMaxStores still returns granted stores when the client has no shop c
   });
   assert.deepEqual((await c.getGmvMaxStores('adv')).map((s) => s.store_id), ['granted1']);
 });
+
+test('getGmvMaxStores does not fail silently when the shop lookup returns code != 0', async () => {
+  // A revoked/expired shop token arrives as HTTP 200 with code != 0. Swallowing it would
+  // reproduce the exact bug this probe exists to fix — GMV Max quietly missing — so it has to
+  // leave a trace even though returning the granted list is still the right answer.
+  const warnings = [];
+  const realWarn = console.warn;
+  console.warn = (...a) => warnings.push(a.join(' '));
+  try {
+    const c = clientWith((p) => {
+      if (p === '/clients/') return { status: 200, body: [{ id: 'cid1' }] };
+      if (p === '/gateway/ads/gmv_max/store/list/') {
+        return { status: 200, body: { code: 0, data: { store_list: [{ store_id: 'granted1', is_gmv_max_available: true }] } } };
+      }
+      if (p === '/gateway/shop/cid1/authorization/202309/shops') {
+        return { status: 200, body: { code: 105002, message: 'shop token expired', data: null } };
+      }
+      return { status: 404, body: {} };
+    });
+    assert.deepEqual((await c.getGmvMaxStores('adv')).map((s) => s.store_id), ['granted1']);
+    assert.ok(warnings.some((w) => /105002|shop token expired/.test(w)), 'the failure was logged');
+  } finally { console.warn = realWarn; }
+});
+
+test('getGmvMaxStores keeps the own shop even when store/list reports it unavailable', async () => {
+  // TikTok marks a store unavailable when it is bound to a DIFFERENT advertiser. For the
+  // client's own shop that verdict is about someone else's binding, not ours — verified live:
+  // report/get returned real campaigns for a shop the list had never mentioned.
+  const c = clientWith((p) => {
+    if (p === '/clients/') return { status: 200, body: [{ id: 'cid1' }] };
+    if (p === '/gateway/ads/gmv_max/store/list/') {
+      return { status: 200, body: { code: 0, data: { store_list: [
+        { store_id: '7494703669286898633', store_name: 'lilsheepcafe', is_gmv_max_available: false },
+      ] } } };
+    }
+    if (p === '/gateway/shop/cid1/authorization/202309/shops') {
+      return { status: 200, body: { code: 0, data: { shops: [{ id: '7494703669286898633', name: 'lilsheepcafe' }] } } };
+    }
+    return { status: 404, body: {} };
+  });
+  const stores = await c.getGmvMaxStores('adv');
+  assert.deepEqual(stores.map((s) => s.store_id), ['7494703669286898633']);
+  assert.equal(stores[0].source, 'own_shop');
+});

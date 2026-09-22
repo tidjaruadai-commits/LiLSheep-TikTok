@@ -156,16 +156,26 @@ export function createReportPilotClient({ base = 'https://api.tidjaruad.co', get
 
   // The client's OWN shop, which gmv_max/store/list does not return (see getGmvMaxStores).
   // Additive and never fatal: a client with no shop connected still gets the granted list.
+  let ownShopStores;   // per client, never changes mid-run
   async function getOwnShopStores() {
+    if (ownShopStores) return ownShopStores;
     try {
       const cid = await getClientId();
       const json = await rpFetch(`/gateway/shop/${cid}/authorization/202309/shops`);
-      const shops = (json && json.data && json.data.shops) || [];
-      return shops.filter((s) => s && s.id).map((s) => ({
-        store_id: String(s.id), store_name: s.name || '', is_gmv_max_available: true, own_shop: true,
-      }));
-    } catch {
-      return [];
+      // A TikTok-side failure (revoked/expired shop token) arrives as HTTP 200 with code != 0.
+      // Swallowing it would silently reproduce the very bug this function exists to fix, so say
+      // so in the logs — returning [] is still the right answer, just never a quiet one.
+      if (!json || json.code !== 0) {
+        console.warn('getOwnShopStores: shop lookup returned', json && json.code, json && json.message);
+        return (ownShopStores = []);
+      }
+      const shops = (json.data && json.data.shops) || [];
+      ownShopStores = shops.filter((s) => s && s.id)
+        .map((s) => ({ store_id: String(s.id), store_name: s.name || '', source: 'own_shop' }));
+      return ownShopStores;
+    } catch (e) {
+      console.warn('getOwnShopStores: shop lookup failed —', e.code || '', e.message);
+      return (ownShopStores = []);
     }
   }
 
@@ -294,6 +304,11 @@ export function createReportPilotClient({ base = 'https://api.tidjaruad.co', get
         const json = await rpFetch(apiPath, params);
         if (!json || json.code !== 0) throw ttError(json, 'shop_video detail error');
         const ivals = (json.data && json.data.performance && json.data.performance.intervals) || [];
+        // No intervals is NOT "this clip scored zero" — it is TikTok having nothing for the
+        // window yet (fresh clip, ~2-day analytics lag). Returning zeros here would let the
+        // caller store them as a measurement and, because a stored value is never revisited,
+        // freeze the clip at 0 forever. Fail instead: "not measured yet" is recoverable.
+        if (!ivals.length) throw ttError(json, 'shop_video detail: no intervals for this window');
         const t = { views: 0, likes: 0, comments: 0, shares: 0, new_followers: 0 };
         for (const iv of ivals) {
           const tr = (iv && iv.traffic) || {};
