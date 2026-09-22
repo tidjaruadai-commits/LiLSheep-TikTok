@@ -248,3 +248,32 @@ test('syncVideos isolates a failed month (shop-videos fetch throws) without abor
   assert.ok(res.results.some((r) => r.month === '2026-08' && r.ok === true));
   assert.ok(res.results.some((r) => r.month === '2026-07' && r.error === 'gateway stalled'));
 });
+
+test('syncVideos spends its detail calls on clips it has never measured, not on ones already stored', async () => {
+  // TikTok caps the per-clip endpoint with a rate limit shared across the WHOLE app
+  // (HTTP 429, code 36009002 "shared app-group rate limit"). Observed on Lilsheep
+  // 2026-09-21: 18 failures in 100 seconds, and a single isolated call still refused a
+  // day later. keepEngagement already stores what we measure for good, so re-measuring a
+  // clip buys nothing and burns quota every other client shares. Measure once, ever.
+  const seen = [];
+  const client = makeClient({
+    fetchShopVideoDetail: async (_clientId, videoId) => {
+      seen.push(String(videoId));
+      return { views: 1, likes: 1, comments: 0, shares: 0, new_followers: 0 };
+    },
+  });
+  const fakeFetch = async (url, opts = {}) => {
+    const u = String(url);
+    if (!opts.method && u.includes('/m039_video_monthly') && u.includes('select=video_id')) {
+      // the highest-views clip was already measured on an earlier run
+      return { status: 200, async text() { return JSON.stringify([
+        { video_id: '7642362725158440210', likes: 11, comments: 10, shares: 9, new_followers: 8 },
+      ]); } };
+    }
+    return { status: 201, async text() { return '[]'; }, async json() { return []; } };
+  };
+  const res = await syncVideos({ cfg, client, clientId: 'uuid-1', advertiserIds: ['adv'], months: ['2026-08'], fetchImpl: fakeFetch, detailTopN: 1, sleep: async () => {} });
+  assert.equal(res.ok, true);
+  assert.ok(!seen.includes('7642362725158440210'), 'already-measured clip must not be re-measured');
+  assert.deepEqual(seen, ['7574043265901595922'], 'the call goes to the clip that has no engagement yet');
+});
