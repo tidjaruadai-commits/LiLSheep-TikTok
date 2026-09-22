@@ -79,7 +79,57 @@ test('syncGmvMax isolates a failed advertiser (store discovery throws) and a fai
   assert.equal(res.ok, false);
   assert.ok(res.results.some((r) => r.advertiserId === 'bad-adv' && r.error === 'advertiser not found'));
   assert.ok(res.results.some((r) => r.advertiserId === 'good-adv' && r.storeId === 's1' && r.month === '2026-08' && r.ok === true));
-  assert.ok(res.results.some((r) => r.advertiserId === 'good-adv' && r.storeId === 's1' && r.month === '2026-07' && r.error === 'gateway stalled'));
+  // both types failed for 2026-07, and the error now names each one
+  assert.ok(res.results.some((r) => r.advertiserId === 'good-adv' && r.storeId === 's1' && r.month === '2026-07'
+    && r.error === 'LIVE: gateway stalled; PRODUCT: gateway stalled'));
+});
+
+test('one failing promotion type still writes the other (the bug that cost Lilsheep a month of GMV Max)', async () => {
+  const cfg = { supabaseUrl: 'https://x.supabase.co', supabaseAnonKey: 'a', m039Jwt: 'j' };
+  const client = {
+    getGmvMaxStores: async () => [{ store_id: 's1' }],
+    fetchGmvMax: async (adv, storeId, month, type) => {
+      if (type === 'LIVE') throw new Error('gateway 500: Server disconnected');
+      return { cost: 50, net_cost: 45, gross_revenue: 100, roi: 2, orders: 5 };
+    },
+  };
+  const writes = [];
+  const fakeFetch = async (url, opts = {}) => { writes.push({ url: String(url), method: opts.method, body: opts.body }); return { status: 201, async text() { return ''; } }; };
+  const res = await syncGmvMax({ cfg, client, advertiserIds: ['adv'], months: ['2026-09'], fetchImpl: fakeFetch });
+
+  const post = writes.find((w) => w.url.includes('/m039_gmvmax_monthly') && w.method === 'POST');
+  assert.ok(post, 'PRODUCT was saved even though LIVE failed');
+  const rows = JSON.parse(post.body);
+  assert.equal(rows.length, 1, 'only the type that came back is written');
+  assert.equal(rows[0].promotion_type, 'PRODUCT');
+  assert.equal(rows[0].gross_revenue, 100);
+
+  assert.equal(res.ok, false, 'the run still reports failure so the next one retries LIVE');
+  assert.deepEqual(res.results[0].wrote, ['PRODUCT']);
+  assert.match(res.results[0].error, /LIVE: gateway 500/);
+});
+
+test('a failing type is left alone, never overwritten with zeros', async () => {
+  // A stored LIVE row from an earlier run must survive a transient failure. Writing
+  // {cost: 0, gross_revenue: 0} for LIVE would read as "the live ads made nothing".
+  const rows = mapGmvMaxRows('2026-09', 'adv', 's1', { PRODUCT: { cost: 50, net_cost: 45, gross_revenue: 100, roi: 2, orders: 5 } });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].promotion_type, 'PRODUCT');
+});
+
+test('when BOTH types fail nothing is written and both reasons are reported', async () => {
+  const cfg = { supabaseUrl: 'https://x.supabase.co', supabaseAnonKey: 'a', m039Jwt: 'j' };
+  const client = {
+    getGmvMaxStores: async () => [{ store_id: 's1' }],
+    fetchGmvMax: async (adv, storeId, month, type) => { throw new Error(`${type} upstream down`); },
+  };
+  const writes = [];
+  const fakeFetch = async (url, opts = {}) => { writes.push({ url: String(url), method: opts.method }); return { status: 201, async text() { return ''; } }; };
+  const res = await syncGmvMax({ cfg, client, advertiserIds: ['adv'], months: ['2026-09'], fetchImpl: fakeFetch });
+  assert.equal(writes.filter((w) => w.method === 'POST').length, 0, 'never POST an empty row set');
+  assert.equal(res.ok, false);
+  assert.match(res.results[0].error, /LIVE: LIVE upstream down/);
+  assert.match(res.results[0].error, /PRODUCT: PRODUCT upstream down/);
 });
 
 test('syncGmvMax isolates a failed upsert (db write error) without stopping other store/months', async () => {
