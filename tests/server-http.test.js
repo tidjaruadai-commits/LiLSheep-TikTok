@@ -10,6 +10,7 @@ process.env.SUPABASE_M039_JWT = 'j';
 process.env.SECRET_STORE_KEY = 'k';
 process.env.OWNER_USER = 'owner';
 process.env.OWNER_PASSWORD = 'pw';
+process.env.VIEWERS = 'malee:hunter2';
 process.env.M039_NO_LISTEN = '1';
 const { app } = await import('../server.js?http-test');
 
@@ -61,5 +62,31 @@ test('server wiring: healthz open, API needs auth, login works, env.js leaks not
     const cronNoSecret = await req(server, 'GET', '/api/cron/sync');
     assert.equal(cronNoSecret.status, 401);
     assert.match(cronNoSecret.body, /unauthorized/);
+  } finally { server.close(); }
+});
+
+test('a VIEWERS login gets in read-only: it sees the dashboard but not the token or sync routes', async () => {
+  const server = http.createServer(app).listen(0);
+  try {
+    const login = await req(server, 'POST', '/login', { headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'username=malee&password=hunter2' });
+    assert.equal(login.status, 303);
+    assert.equal(login.headers.location, '/');
+    const cookie = (login.headers['set-cookie'] || []).map((c) => c.split(';')[0]).join('; ');
+    assert.ok(cookie, 'a viewer gets a session');
+
+    // the page is told it is a viewer, and env.js still carries no credentials
+    const env = await req(server, 'GET', '/env.js', { headers: { cookie } });
+    assert.match(env.body, /"role":"viewer"/);
+    assert.ok(!/supabase|SUPABASE|eyJ/.test(env.body), 'no supabase url/key/jwt in env.js');
+
+    // requireOwner on the server — not the hidden tab — is what actually stops a viewer
+    const connect = await req(server, 'POST', '/api/tiktok/connect', { headers: { 'content-type': 'application/json', cookie }, body: `{"key":"rpt_${'a'.repeat(24)}"}` });
+    assert.equal(connect.status, 403, 'a viewer cannot replace the Report Pilot token');
+    const sync = await req(server, 'POST', '/api/tiktok/sync', { headers: { 'content-type': 'application/json', cookie }, body: '{"months":["2026-09"]}' });
+    assert.equal(sync.status, 403, 'a viewer cannot trigger a sync');
+
+    // a wrong password on a viewer account is still refused
+    const bad = await req(server, 'POST', '/login', { headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'username=malee&password=nope' });
+    assert.equal(bad.headers.location, '/login?error=1');
   } finally { server.close(); }
 });

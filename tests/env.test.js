@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { getConfig, requireEnv } from '../lib/env.js';
+import { getConfig, requireEnv, parseViewers } from '../lib/env.js';
 
 function withEnv(vars, fn) {
   const saved = { ...process.env };
@@ -45,4 +45,17 @@ test('requireEnv passes when all mandatory vars are present', () => {
     { SUPABASE_URL: 'u', SUPABASE_ANON_KEY: 'a', SUPABASE_M039_JWT: 'j', SECRET_STORE_KEY: 's', OWNER_PASSWORD: 'p' },
     () => assert.doesNotThrow(() => requireEnv())
   );
+});
+
+test('parseViewers reads "name:password" pairs split by comma or newline, dropping half-written entries', () => {
+  assert.deepEqual(parseViewers('somchai:s3cret,malee:hunter2'),
+    [{ user: 'somchai', pass: 's3cret' }, { user: 'malee', pass: 'hunter2' }]);
+  assert.deepEqual(parseViewers(' somchai : s3cret \n malee:hunter2 '),
+    [{ user: 'somchai', pass: ' s3cret' }, { user: 'malee', pass: 'hunter2' }]);
+  // only the FIRST colon splits, so a password may contain one
+  assert.deepEqual(parseViewers('a:pa:ss'), [{ user: 'a', pass: 'pa:ss' }]);
+  // no name, no password, or no colon at all -> dropped, never an account with a blank half
+  assert.deepEqual(parseViewers('nopassword:,:nouser,plain,,'), []);
+  assert.deepEqual(parseViewers(''), []);
+  assert.deepEqual(parseViewers(undefined), []);
 });

@@ -198,6 +198,8 @@
     </section>
   </main>
 
+  <!-- Sets window.__ENV = { role }. The server sends nothing else here — no Supabase url, key or JWT. -->
+  <script src="/env.js"></script>
   <script>
     const baht=(n)=>'฿'+Math.round(Number(n)||0).toLocaleString('th-TH');
     const bahtK=(n)=>{n=Number(n)||0; if(n>=1e6)return'฿'+(n/1e6).toFixed(2)+'M'; if(n>=1e3)return'฿'+(n/1e3).toFixed(1)+'K'; return'฿'+Math.round(n).toLocaleString('th-TH');};
@@ -215,6 +217,9 @@
 
     function monthOptions(){const sel=document.getElementById('month'),now=new Date(),th=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
       for(let i=0;i<12;i++){const d=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth()-i,1));const v=d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0');const o=document.createElement('option');o.value=v;o.textContent=th[d.getUTCMonth()]+' '+d.getUTCFullYear();sel.appendChild(o);}}
+    // A viewer login is read-only — requireOwner already rejects the token and sync routes on the
+    // server, so hiding the tab only removes a dead end, it is not what enforces the restriction.
+    if((window.__ENV||{}).role!=='owner'){const b=document.querySelector('.nav-btn[data-t="setup"]');if(b)b.remove();}
     function tab(n){document.querySelectorAll('.nav-btn').forEach(t=>t.classList.toggle('active',t.dataset.t===n));['overview','trend','product','ads','clips','affiliate','setup'].forEach(s=>document.getElementById(s).classList.toggle('active',s===n));}
     document.getElementById('tabs').addEventListener('click',e=>{const b=e.target.closest('.nav-btn');if(b)tab(b.dataset.t);});
 

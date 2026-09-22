@@ -58,7 +58,8 @@ app.post('/login', (req, res) => {
   const ip = req.ip || 'unknown';
   if (loginLimiter.blocked(ip)) return res.redirect(303, '/login?error=locked');
   const { username, password } = req.body || {};
-  if (checkLogin(username, password, cfg)) { loginLimiter.reset(ip); req.session.role = 'owner'; req.session.user = username; return res.redirect(303, '/'); }
+  const role = checkLogin(username, password, cfg);
+  if (role) { loginLimiter.reset(ip); req.session.role = role; req.session.user = username; return res.redirect(303, '/'); }
   loginLimiter.fail(ip);
   res.redirect(303, '/login?error=1');
 });
