@@ -154,15 +154,50 @@ export function createReportPilotClient({ base = 'https://api.tidjaruad.co', get
     return e;
   }
 
-  // Store discovery: keep only stores TikTok has actually enabled for GMV Max — the report
-  // endpoint errors on a store that isn't. NOTE: verified live against the gateway — this
-  // endpoint nests results under data.store_list, NOT data.list (that shape belongs to
-  // report/get/ below only; the two endpoints do not share a response shape).
+  // The client's OWN shop, which gmv_max/store/list does not return (see getGmvMaxStores).
+  // Additive and never fatal: a client with no shop connected still gets the granted list.
+  async function getOwnShopStores() {
+    try {
+      const cid = await getClientId();
+      const json = await rpFetch(`/gateway/shop/${cid}/authorization/202309/shops`);
+      const shops = (json && json.data && json.data.shops) || [];
+      return shops.filter((s) => s && s.id).map((s) => ({
+        store_id: String(s.id), store_name: s.name || '', is_gmv_max_available: true, own_shop: true,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  // Store discovery for GMV Max. Two sources, because neither alone is complete:
+  //
+  //   1. gmv_max/store/list — stores this advertiser has been GRANTED. It lists OTHER
+  //      shops in the business centre, each bound elsewhere; it does NOT include the
+  //      advertiser's own shop.
+  //   2. The client's own shop, read from the Shop API.
+  //
+  // Verified live 2026-09-22 on Lilsheep (advertiser 7171694561926987777): store/list
+  // returned 9 stores, every one another client's with is_gmv_max_available=false and
+  // Lilsheep's own shop absent — while gmv_max/report/get with that shop's own id returned
+  // 71 campaigns, B32,239 spend, B108,584 revenue. Filtering the list alone yields [], so
+  // syncGmvMax skipped the advertiser entirely and the dashboard showed nothing while the
+  // ads were running. Keep both sources.
+  //
+  // A store that turns out NOT to be GMV Max enabled makes report/get error; syncGmvMax
+  // already isolates every (store, month) fetch, so that costs one recorded error, not the run.
+  //
+  // NOTE: this endpoint nests results under data.store_list, NOT data.list (that shape
+  // belongs to report/get/ below only; the two endpoints do not share a response shape).
   async function getGmvMaxStores(advertiserId) {
     const json = await rpFetch('/gateway/ads/gmv_max/store/list/', { advertiser_id: advertiserId, page_size: 50 });
     if (!json || json.code !== 0) throw ttError(json, 'gmv_max store list error');
-    const list = (json.data && json.data.store_list) || [];
-    return list.filter((s) => s && s.is_gmv_max_available === true);
+    const granted = ((json.data && json.data.store_list) || []).filter((s) => s && s.is_gmv_max_available === true);
+    const byId = new Map();
+    for (const s of [...(await getOwnShopStores()), ...granted]) {
+      const id = String((s && s.store_id) || '');
+      if (id && !byId.has(id)) byId.set(id, s);
+    }
+    return [...byId.values()];
   }
 
   // GMV Max performance for one store/month/promotion type, aggregated across every campaign the

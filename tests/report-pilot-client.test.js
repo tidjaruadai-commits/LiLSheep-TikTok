@@ -194,3 +194,64 @@ test('fetchAdReport throws TT_ERROR when the report returns code !== 0', async (
   const c = clientWith(() => ({ status: 200, body: { code: 40002, message: 'bad report' } }));
   await assert.rejects(() => c.fetchAdReport('adv', '2026-08'), (e) => e.code === 'TT_ERROR' && /bad report/.test(e.message));
 });
+
+// --- GMV Max store discovery: the own shop is invisible to store/list -------------------
+// Verified live 2026-09-22 against Lilsheep's advertiser 7171694561926987777:
+// gmv_max/store/list returned 9 stores, EVERY one of them another client's shop with
+// is_gmv_max_available=false, and Lilsheep's own shop absent entirely — while
+// gmv_max/report/get with that shop's own id returned 71 campaigns, B32,239 spend and
+// B108,584 revenue. Filtering the list alone therefore yields [], so syncGmvMax skips the
+// advertiser and the dashboard shows nothing while GMV Max is in fact running.
+
+test("getGmvMaxStores includes the client's own shop, which store/list never returns", async () => {
+  const c = clientWith((p) => {
+    if (p === '/clients/') return { status: 200, body: [{ id: 'cid1' }] };
+    if (p === '/gateway/ads/gmv_max/store/list/') {
+      return { status: 200, body: { code: 0, data: { store_list: [
+        { store_id: '7494197474403452699', store_name: 'Charizee', is_gmv_max_available: false },
+      ] } } };
+    }
+    if (p === '/gateway/shop/cid1/authorization/202309/shops') {
+      return { status: 200, body: { code: 0, data: { shops: [
+        { id: '7494703669286898633', code: 'THLCJ8WLTT', name: 'lilsheepcafe' },
+      ] } } };
+    }
+    return { status: 404, body: {} };
+  });
+  const stores = await c.getGmvMaxStores('7171694561926987777');
+  assert.deepEqual(stores.map((s) => s.store_id), ['7494703669286898633']);
+});
+
+test('getGmvMaxStores does not list the own shop twice when store/list also grants it', async () => {
+  const c = clientWith((p) => {
+    if (p === '/clients/') return { status: 200, body: [{ id: 'cid1' }] };
+    if (p === '/gateway/ads/gmv_max/store/list/') {
+      return { status: 200, body: { code: 0, data: { store_list: [
+        { store_id: '777', store_name: 'own', is_gmv_max_available: true },
+      ] } } };
+    }
+    if (p === '/gateway/shop/cid1/authorization/202309/shops') {
+      return { status: 200, body: { code: 0, data: { shops: [{ id: '777', name: 'own' }] } } };
+    }
+    return { status: 404, body: {} };
+  });
+  assert.deepEqual((await c.getGmvMaxStores('adv')).map((s) => s.store_id), ['777']);
+});
+
+test('getGmvMaxStores still returns granted stores when the client has no shop connected', async () => {
+  // A non-shop client must not lose the stores it WAS granted just because the shop
+  // lookup 400s — the own-shop probe is additive, never a precondition.
+  const c = clientWith((p) => {
+    if (p === '/clients/') return { status: 200, body: [{ id: 'cid1' }] };
+    if (p === '/gateway/ads/gmv_max/store/list/') {
+      return { status: 200, body: { code: 0, data: { store_list: [
+        { store_id: 'granted1', is_gmv_max_available: true },
+      ] } } };
+    }
+    if (p === '/gateway/shop/cid1/authorization/202309/shops') {
+      return { status: 400, body: { detail: 'ลูกค้ารายนี้ยังไม่ได้เชื่อม TikTok Shop' } };
+    }
+    return { status: 404, body: {} };
+  });
+  assert.deepEqual((await c.getGmvMaxStores('adv')).map((s) => s.store_id), ['granted1']);
+});
