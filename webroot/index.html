@@ -190,8 +190,10 @@
         <div style="margin-top:12px"><button class="btn" id="saveToken">บันทึกโทเคน</button></div>
         <hr>
         <button class="btn ghost" id="syncNow">🔄 ซิงก์ข้อมูลเดือนนี้ตอนนี้</button>
+        <button class="btn ghost" id="backfill" style="margin-left:8px">⏪ ดึงย้อนหลังถึงต้นปี</button>
         <div class="note" id="syncState"></div>
-        <div class="note" style="margin-top:8px">ซิงก์อัตโนมัติวันละครั้ง · ปุ่มนี้ดึงทันที (ราว 2–3 นาที)</div>
+        <div class="note" style="margin-top:8px">ซิงก์อัตโนมัติวันละครั้ง · ปุ่มซิงก์ดึงเดือนที่เลือกทันที</div>
+        <div class="note">ดึงย้อนหลังจะไล่ทีละเดือนตั้งแต่ ม.ค. ถึงเดือนนี้ · ยอดร้าน/โฆษณา/GMV Max ได้ครบทุกเดือน ส่วนข้อมูลรายคลิปกับครีเอเตอร์ TikTok ให้ย้อนได้ราว 180 วัน เดือนที่เก่ากว่านั้นจะข้ามไป</div>
       </div>
     </section>
   </main>
@@ -447,6 +449,27 @@
     }
     document.getElementById('saveToken').addEventListener('click',async()=>{const key=document.getElementById('token').value.trim();const r=await fetch('/api/tiktok/connect',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({key})}).then(r=>r.json());document.getElementById('connState').textContent=r.ok?'✅ บันทึกโทเคนแล้ว':('ผิดพลาด: '+(r.error||''));if(r.ok){document.getElementById('token').value='';refreshStatus();}});
     document.getElementById('syncNow').addEventListener('click',async(e)=>{e.target.disabled=true;document.getElementById('syncState').textContent='กำลังซิงก์… (อาจใช้เวลา 2–3 นาที อย่าปิดหน้านี้)';const m=document.getElementById('month').value;try{const r=await fetch('/api/tiktok/sync',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({months:[m]})}).then(r=>r.json());document.getElementById('syncState').textContent=r.ok?'✅ ซิงก์เสร็จแล้ว':('ผิดพลาด: '+(r.error||''));if(r.ok){prevCache={};load();refreshStatus();}}catch(_){document.getElementById('syncState').textContent='ซิงก์นานเกินกำหนด ลองใหม่';}e.target.disabled=false;});
+
+    // Backfill: one request PER MONTH, never one request for nine. The server bounds a single
+    // run to fit the serverless limit, so asking for the whole year at once would be killed
+    // part-way and lose the rest. Sequential, so a month's writes land before the next starts.
+    async function syncOneMonth(m){try{return await fetch('/api/tiktok/sync',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({months:[m]})}).then(r=>r.json());}catch(_){return {ok:false,error:'หมดเวลารอ'};}}
+    document.getElementById('backfill').addEventListener('click',async(e)=>{
+      const now=new Date(),y=now.getUTCFullYear(),last=now.getUTCMonth()+1,months=[];
+      for(let i=1;i<=last;i++)months.push(y+'-'+String(i).padStart(2,'0'));
+      if(!confirm('ดึงย้อนหลัง '+months.length+' เดือน (ม.ค.–เดือนนี้) ใช้เวลาราว '+months.length+'–'+(months.length*2)+' นาที อย่าปิดหน้านี้ — เริ่มเลยไหม'))return;
+      const btn=e.target,sync=document.getElementById('syncNow'),st=document.getElementById('syncState');
+      btn.disabled=true;sync.disabled=true;
+      const failed=[];
+      for(let i=0;i<months.length;i++){
+        st.textContent='กำลังดึงย้อนหลัง '+(i+1)+'/'+months.length+' — เดือน '+months[i]+' (อย่าปิดหน้านี้)';
+        const r=await syncOneMonth(months[i]);
+        if(!r||!r.ok)failed.push(months[i]);
+      }
+      st.textContent=failed.length?('ดึงเสร็จแล้ว · เดือนที่ยังไม่ครบ: '+failed.join(', ')+' — กดซ้ำได้'):'✅ ดึงย้อนหลังครบทุกเดือนแล้ว';
+      prevCache={};load();refreshStatus();
+      btn.disabled=false;sync.disabled=false;
+    });
 
     document.getElementById('month').addEventListener('change',load);
     monthOptions(); refreshStatus(); load();

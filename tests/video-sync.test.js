@@ -216,6 +216,26 @@ test('the detail budget is a pool for the whole run, not a fresh allowance per m
   assert.deepEqual(seen, ['2026-08'], 'the first month spent the pool; the second gets no calls at all');
 });
 
+test('a month past TikTok\'s lookback wall is skipped, not reported as a failure', async () => {
+  // Backfilling to January asks for months whose per-clip data TikTok will never serve
+  // (~180-day analytics wall, ttCode 28001022). Monthly shop/ads/GMV Max totals for those same
+  // months DO come back, so the run must not be marked failed over a boundary.
+  const outside = Object.assign(new Error('Invalid Parameter. Parameter `start_date_ge and end_date_lt` is invalid'), { code: 'TT_ERROR', ttCode: 28001022 });
+  const client = makeClient({ fetchShopVideos: async () => { throw outside; } });
+  const fakeFetch = async () => ({ status: 201, async text() { return '[]'; }, async json() { return []; } });
+  const res = await syncVideos({ cfg, client, clientId: 'uuid-1', advertiserIds: ['adv'], months: ['2026-02'], fetchImpl: fakeFetch, sleep: async () => {} });
+  assert.equal(res.ok, true, 'a boundary is not a failure');
+  assert.deepEqual(res.results, [{ month: '2026-02', skipped: 'outside-tiktok-window' }]);
+});
+
+test('an ordinary failure is still reported as an error, not silently skipped', async () => {
+  const client = makeClient({ fetchShopVideos: async () => { throw new Error('gateway 500'); } });
+  const fakeFetch = async () => ({ status: 201, async text() { return '[]'; }, async json() { return []; } });
+  const res = await syncVideos({ cfg, client, clientId: 'uuid-1', advertiserIds: ['adv'], months: ['2026-08'], fetchImpl: fakeFetch, sleep: async () => {} });
+  assert.equal(res.ok, false);
+  assert.equal(res.results[0].error, 'gateway 500');
+});
+
 test('the cover budget is a pool for the whole run too', async () => {
   let t = 0;
   const now = () => t;

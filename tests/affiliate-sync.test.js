@@ -56,6 +56,25 @@ test('syncAffiliate upserts creator rankings (on_conflict month,username) + the 
   assert.equal(mrow.live_count, 7901);
 });
 
+test('a month past TikTok\'s lookback wall is skipped, not reported as a failure', async () => {
+  // Backfilling to January asks for months whose affiliate data TikTok will never serve
+  // (~180-day analytics wall, ttCode 28001022). That is a boundary, not something that broke.
+  const outside = Object.assign(new Error('Invalid Parameter. Parameter `start_date_ge and end_date_lt` is invalid'), { code: 'TT_ERROR', ttCode: 28001022 });
+  const client = makeAffClient({ fetchShopVideos: async () => { throw outside; } });
+  const fakeFetch = async () => ({ status: 201, async text() { return '[]'; } });
+  const res = await syncAffiliate({ cfg, client, clientId: 'uuid-1', months: ['2026-02'], fetchImpl: fakeFetch });
+  assert.equal(res.ok, true);
+  assert.deepEqual(res.results, [{ month: '2026-02', skipped: 'outside-tiktok-window' }]);
+});
+
+test('an ordinary affiliate failure is still an error, not silently skipped', async () => {
+  const client = makeAffClient({ fetchShopVideos: async () => { throw new Error('gateway 500'); } });
+  const fakeFetch = async () => ({ status: 201, async text() { return '[]'; } });
+  const res = await syncAffiliate({ cfg, client, clientId: 'uuid-1', months: ['2026-08'], fetchImpl: fakeFetch });
+  assert.equal(res.ok, false);
+  assert.equal(res.results[0].error, 'gateway 500');
+});
+
 test('syncAffiliate skips a month when both affiliate videos and lives are empty (a blip must not zero the growth row)', async () => {
   const writes = [];
   const fakeFetch = async (url, opts = {}) => { writes.push({ url: String(url), method: opts.method }); return { status: 201, async text() { return '[]'; } }; };

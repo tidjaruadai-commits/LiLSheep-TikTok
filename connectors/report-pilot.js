@@ -1,5 +1,18 @@
 // Report Pilot gateway connector. Pure helpers first; the I/O client is added in Task 4.
 
+// TikTok's own numeric codes, carried on thrown errors as `e.ttCode` so callers can tell one
+// refusal from another instead of matching on message text.
+//
+// The shared app-group rate limit: a quota spread across every client of the app, not a burst we
+// caused. Measured: a 10 s backoff still failed 9 tries out of 10, and a single isolated call was
+// still refused a day later. Waiting inside one run buys nothing and spends the very thing that
+// is exhausted — it only costs the run ~10 s per clip.
+export const TIKTOK_APP_GROUP_RATE_LIMIT = 36009002;
+// The shop analytics lookback wall (~180 days). Not a failure and not worth retrying: TikTok
+// simply does not serve per-clip or per-live data that old. Monthly shop, ads and GMV Max
+// totals are NOT capped this way — those go back at least to January.
+export const TIKTOK_OUTSIDE_LOOKBACK = 28001022;
+
 const pad = (n) => String(n).padStart(2, '0');
 
 // 'YYYY-MM' -> { start (inclusive), end (EXCLUSIVE = 1st of next month) } for /shop-metrics.
@@ -155,15 +168,9 @@ export function createReportPilotClient({ base = 'https://api.tidjaruad.co', get
   function ttError(json, fallback) {
     const e = new Error((json && json.message) || fallback);
     e.code = 'TT_ERROR';
-    e.ttCode = json && json.code;   // TikTok's own numeric code — 36009002 is the app-wide quota
+    e.ttCode = json && json.code;   // see TIKTOK_* codes at the top of this file
     return e;
   }
-
-  // TikTok's shared app-group rate limit: a quota spread across every client of the app, not a
-  // burst we caused. Measured: a 10 s backoff still failed 9 tries out of 10, and a single
-  // isolated call was still refused a day later. Waiting inside one run therefore buys nothing
-  // and spends the very thing that is exhausted — it only costs the run ~10 s per clip.
-  const APP_GROUP_RATE_LIMIT = 36009002;
 
   // The client's OWN shop, which gmv_max/store/list does not return (see getGmvMaxStores).
   // Additive and never fatal: a client with no shop connected still gets the granted list.
@@ -332,7 +339,7 @@ export function createReportPilotClient({ base = 'https://api.tidjaruad.co', get
         // The app-wide quota does not recover inside a run, so backing off just burns the
         // serverless budget one clip at a time. Give up on this clip immediately; the daily
         // cron re-measures the open month anyway.
-        if (e && e.ttCode === APP_GROUP_RATE_LIMIT) throw e;
+        if (e && e.ttCode === TIKTOK_APP_GROUP_RATE_LIMIT) throw e;
         if (attempt < retries) { await sleep(backoffMs); continue; }
         throw e;
       }
