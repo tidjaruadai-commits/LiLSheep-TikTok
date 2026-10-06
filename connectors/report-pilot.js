@@ -15,6 +15,36 @@ export const TIKTOK_OUTSIDE_LOOKBACK = 28001022;
 
 const pad = (n) => String(n).padStart(2, '0');
 
+// A money/number field TikTok sends as {amount:"12.3",currency:"THB"}, a bare "12.3" or a number.
+// First candidate that parses wins; null when none does, so "absent" stays distinct from 0.
+const amountOf = (...cands) => {
+  for (const c of cands) {
+    if (c == null) continue;
+    const n = parseFloat(typeof c === 'object' ? c.amount : c);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+};
+
+// One row of shop_products/performance -> { id, name, gmv, orders, items_sold }, or null with no id.
+// TikTok has reshaped the analytics endpoints between API versions (shop_videos had to move to
+// 202509) and this list's exact fields could not be verified offline, so each value is read from
+// the places it is known to live. gmv stays null when NONE of them parse — the caller treats a whole
+// page of nulls as a shape change and fails loudly instead of storing a page of zeros.
+export function readShopProduct(p) {
+  const id = String((p && (p.id ?? p.product_id)) ?? '').trim();
+  if (!id) return null;
+  const s = (p.sales && p.sales.overall) || (p.sales_performance && p.sales_performance.overall) || p.sales_performance || p.sales || {};
+  const perf = (p.performance && p.performance.sales && p.performance.sales.overall) || {};
+  return {
+    id,
+    name: String(p.name ?? p.title ?? p.product_name ?? '').replace(/\s+/g, ' ').trim(),
+    gmv: amountOf(p.gmv, s.gmv, s.gross_merchandise_value, perf.gmv),
+    orders: amountOf(p.sku_orders, p.orders, s.sku_orders, s.orders, perf.sku_orders, perf.orders),
+    items_sold: amountOf(p.items_sold, p.units_sold, s.items_sold, s.units_sold, perf.items_sold, perf.units_sold),
+  };
+}
+
 // 'YYYY-MM' -> { start (inclusive), end (EXCLUSIVE = 1st of next month) } for /shop-metrics.
 export function monthRange(month) {
   const m = /^(\d{4})-(\d{2})$/.exec(String(month || ''));
@@ -425,5 +455,67 @@ export function createReportPilotClient({ base = 'https://api.tidjaruad.co', get
     return gmvNum(json.data && json.data.total_count);
   }
 
-  return { rpFetch, getClientId, getAdvertiserIds, fetchShopMetrics, fetchAdsMetrics, fetchAdReport, getGmvMaxStores, fetchGmvMax, fetchShopVideos, fetchShopVideoDetail, fetchGmvMaxItems, fetchShopLives, fetchShopOverview, fetchShopCount };
+  // Shop-side per-PRODUCT sales (Seller Center → Analytics → Products), every channel combined —
+  // LIVE, video and product card — which is what Seller Center shows and what the Products tab has to
+  // match. (Summing shop_videos by product only ever saw the video channel: about a quarter of GMV.)
+  //
+  // Version: tries 202509 (the one shop_videos/shop_lives require), then 202405 (where TikTok first
+  // published this list). The one that answers is remembered so later months skip the dead one.
+  // Refusals that have nothing to do with the version — auth, timeout, quota, the 180-day wall — are
+  // thrown at once instead of being retried on the other version. When BOTH versions fail the error
+  // carries both reasons, so a wrong guess is readable on screen rather than a silent empty tab.
+  const PRODUCT_VERSIONS = ['202509', '202405'];
+  let productVersion = '';
+  const notAVersionProblem = (e) => e.code === 'RP_AUTH' || e.code === 'RP_TIMEOUT' || e.code === 'BAD_MONTH'
+    || e.ttCode === TIKTOK_OUTSIDE_LOOKBACK || e.ttCode === TIKTOK_APP_GROUP_RATE_LIMIT;
+
+  async function fetchShopProducts(clientId, month, { pageSize = 100, maxPages = 5 } = {}) {
+    const range = monthRange(month);
+    if (!range) { const e = new Error('เดือนต้องเป็น YYYY-MM'); e.code = 'BAD_MONTH'; throw e; }
+
+    const attempt = async (version) => {
+      const apiPath = `/gateway/shop/${clientId}/analytics/${version}/shop_products/performance`;
+      const raw = [];
+      let pageToken = '', truncated = false;
+      for (let page = 0; page < maxPages; page++) {
+        const params = { start_date_ge: range.start, end_date_lt: range.end, page_size: pageSize, sort_field: 'gmv', sort_order: 'DESC', currency: 'LOCAL' };
+        if (pageToken) params.page_token = pageToken;
+        const json = await rpFetch(apiPath, params);
+        if (!json || json.code !== 0) throw ttError(json, 'shop_products list error');
+        const data = json.data || {};
+        for (const p of (data.shop_products || data.products || data.list || [])) raw.push(p);
+        pageToken = data.next_page_token || '';
+        if (!pageToken) break;
+        if (page === maxPages - 1) truncated = true;
+      }
+      const products = raw.map(readShopProduct).filter(Boolean);
+      // Rows came back but not one carries a readable GMV: the shape is not what we expect. Storing
+      // that as zeros would look like "the product sold nothing", so refuse and name what was seen.
+      if (raw.length && !products.some((p) => p.gmv != null)) {
+        const e = new Error(`shop_products ${version}: ได้ ${raw.length} แถวแต่อ่านยอดขาย (gmv) ไม่ได้ — fields ที่เห็น: ${Object.keys(raw[0] || {}).join(', ')}`);
+        e.code = 'PRODUCTS_UNREADABLE';
+        throw e;
+      }
+      return { products, version, truncated };
+    };
+
+    const order = productVersion ? [productVersion] : PRODUCT_VERSIONS;
+    const reasons = [];
+    for (const version of order) {
+      try {
+        const out = await attempt(version);
+        productVersion = version;
+        return out;
+      } catch (e) {
+        if (notAVersionProblem(e)) throw e;
+        reasons.push(`${version}: ${e.message}`);
+      }
+    }
+    productVersion = '';   // a remembered version that stopped working must not pin every later month
+    const e = new Error(`shop_products ใช้ไม่ได้ — ${reasons.join(' | ')}`);
+    e.code = 'TT_ERROR';
+    throw e;
+  }
+
+  return { rpFetch, getClientId, getAdvertiserIds, fetchShopMetrics, fetchAdsMetrics, fetchAdReport, getGmvMaxStores, fetchGmvMax, fetchShopVideos, fetchShopVideoDetail, fetchGmvMaxItems, fetchShopLives, fetchShopOverview, fetchShopCount, fetchShopProducts };
 }

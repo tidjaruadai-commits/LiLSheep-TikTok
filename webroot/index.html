@@ -154,7 +154,7 @@
       <div class="section-title">วิเคราะห์รายสินค้า<span class="r" id="productCount"></span></div>
       <div class="card"><h3 class="mini">🏆 Top สินค้า ตามยอดขาย</h3><canvas id="chProduct"></canvas></div>
       <div class="card tbl-wrap" style="margin-top:12px"><table id="productTable"></table></div>
-      <div class="note">รวมจากคลิป Top ของเดือน · ยอดขาย = ยอดที่คลิปของสินค้านั้นทำได้ (ทุกช่องทาง รวมออร์แกนิก) · ค่าแอด/ROI = จาก GMV Max รายคลิป</div>
+      <div class="note" id="productNote"></div>
     </section>
 
     <section class="tab" id="ads">
@@ -308,8 +308,15 @@
       const top=P.slice(0,10);
       if(chProd)chProd.destroy();
       chProd=new Chart(document.getElementById('chProduct'),{type:'bar',data:{labels:top.map(p=>p.product.length>24?p.product.slice(0,24)+'…':p.product),datasets:[{label:'ยอดขาย',data:top.map(p=>p.gmv),backgroundColor:'#2b8f9c',borderRadius:4}]},options:{indexAxis:'y',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>baht(c.raw)}}},scales:{x:{ticks:{callback:v=>bahtK(v)}}}}});
-      document.getElementById('productTable').innerHTML='<thead><tr><th>สินค้า</th><th>ยอดขาย</th><th>ออเดอร์</th><th>วิว</th><th>คลิป</th><th>ค่าแอด</th><th>ROI</th></tr></thead><tbody>'+
-        (P.length?P.map(p=>`<tr><td>${esc(p.product)}</td><td><b>${baht(p.gmv)}</b></td><td>${numf(p.orders)}</td><td>${numf(p.views)}</td><td>${numf(p.clips)}</td><td>${p.ad_cost>0?baht(p.ad_cost):'<span class="muted">—</span>'}</td><td class="roas ${roiClsB(p.ad_roi,bench)}">${p.ad_roi>0?p.ad_roi.toFixed(2)+'x':'<span class="muted">—</span>'}</td></tr>`).join(''):'<tr><td colspan="7" class="muted" style="text-align:center;padding:22px">ยังไม่มีข้อมูลสินค้า — กดซิงก์</td></tr>')+'</tbody>';
+      const meta=dto.productsMeta||{source:'clips'}, seller=meta.source==='seller';
+      // Say where the numbers came from every time, with the total next to the shop's own GMV, so a
+      // mismatch with Seller Center is visible here instead of being discovered by someone checking.
+      document.getElementById('productNote').textContent = seller
+        ? ('ยอดขาย/ออเดอร์/ชิ้น = ตัวเลขรายสินค้าจาก Seller Center (ทุกช่องทาง: LIVE · วิดีโอ · การ์ดสินค้า) · รวมสินค้า '+baht(meta.sellerGmv)+' จากยอดร้าน '+baht(meta.shopGmv)+(meta.coveragePct!=null?' ('+meta.coveragePct.toFixed(1)+'%)':'')+' · วิว/คลิป/ค่าแอด/ROI = รวมจากคลิปที่ผูกกับสินค้านั้น')
+        : '⚠ ยังไม่ได้ดึงยอดรายสินค้าจาก Seller Center — ตัวเลขด้านบนรวมจากคลิปเท่านั้น (ช่องวิดีโอช่องเดียว จึงน้อยกว่ายอดจริงมากและไม่ตรงกับ Seller Center) · กด "ซิงก์" ที่แท็บตั้งค่า';
+      const cols=seller?8:7;
+      document.getElementById('productTable').innerHTML='<thead><tr><th>สินค้า</th><th>ยอดขาย</th><th>ออเดอร์</th>'+(seller?'<th>ชิ้น</th>':'')+'<th>วิว</th><th>คลิป</th><th>ค่าแอด</th><th>ROI</th></tr></thead><tbody>'+
+        (P.length?P.map(p=>`<tr><td>${esc(p.product)}</td><td><b>${baht(p.gmv)}</b></td><td>${numf(p.orders)}</td>${seller?`<td>${numf(p.units)}</td>`:''}<td>${p.views>0?numf(p.views):'<span class="muted">—</span>'}</td><td>${p.clips>0?numf(p.clips):'<span class="muted">—</span>'}</td><td>${p.ad_cost>0?baht(p.ad_cost):'<span class="muted">—</span>'}</td><td class="roas ${roiClsB(p.ad_roi,bench)}">${p.ad_roi>0?p.ad_roi.toFixed(2)+'x':'<span class="muted">—</span>'}</td></tr>`).join(''):`<tr><td colspan="${cols}" class="muted" style="text-align:center;padding:22px">ยังไม่มีข้อมูลสินค้า — กดซิงก์</td></tr>`)+'</tbody>';
     }
     function renderAds(dto){
       const gm=dto.gmvmax, aw=awareAll(dto.ads), ac=dto.adChannels||{brand:{spend:0,clips:0,roi:0},creator:{spend:0,clips:0,creators:0,roi:0},clips_total:0}, bench=dto.benchmark||3;

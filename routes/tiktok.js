@@ -4,7 +4,7 @@ import { normalizeKey, looksLikeKey, normalizeInclude } from '../connectors/repo
 // Controller holds the current key in memory (restored from the secret store on first use).
 // Pure-ish: all I/O is injected, so it unit-tests without Express or a DB.
 export function createTikTokController(deps) {
-  const { cfg, saveKey, loadKey, makeClient, syncShop, syncAds, syncGmvMax, syncVideos, syncAffiliate, archiveCovers } = deps;
+  const { cfg, saveKey, loadKey, makeClient, syncShop, syncAds, syncGmvMax, syncProducts, syncVideos, syncAffiliate, archiveCovers } = deps;
   let key = '';
   let lastSync = null;
   let syncing = false;
@@ -63,10 +63,16 @@ export function createTikTokController(deps) {
       // client_id (shop-side calls are client-scoped). Shop videos exist even with no ad accounts, so
       // this runs whenever we can resolve a client_id. Engagement details are time-budgeted inside the
       // job (they hit TikTok's rate limit) so they never starve the cover archive below.
-      let videos = null, affiliate = null;
-      if (syncVideos || syncAffiliate) {
+      let products = null, videos = null, affiliate = null;
+      if (syncProducts || syncVideos || syncAffiliate) {
         const clientId = await step('clientId', () => c.getClientId());
         if (clientId) {
+          // Per-product sales from Seller Center (all channels). Cheap, so it goes before the per-clip
+          // step: that one spends the rest of the time budget and must not be able to starve this.
+          if (syncProducts) {
+            products = await step('products', () => syncProducts({ client: c, clientId, months }));
+            if (products && products.ok === false) (products.results || []).filter((r) => r.error).forEach((r) => errors.push(`products ${r.month || ''}: ${r.error}`));
+          }
           if (syncVideos) {
             const leftForVideos = budgetMs - (Date.now() - started);
             // Reserve ~30s for the cover loop and ~30s for the trailing cover archive.
@@ -81,9 +87,9 @@ export function createTikTokController(deps) {
       }
       const left = budgetMs - (Date.now() - started);
       const covers = left > 0 ? await step('covers', () => archiveCovers({ budgetMs: left })) : { ok: true, skipped: 'budget' };
-      if ([...shop, ads, gmvmax, videos, affiliate, covers].some(Boolean)) lastSync = new Date().toISOString();   // partial progress is still a sync
+      if ([...shop, ads, gmvmax, products, videos, affiliate, covers].some(Boolean)) lastSync = new Date().toISOString();   // partial progress is still a sync
       const ok = errors.length === 0;
-      const out = { ok, months, include: inc, advertiserIds, lastSync, shop, ads, gmvmax, videos, affiliate, covers, errors };
+      const out = { ok, months, include: inc, advertiserIds, lastSync, shop, ads, gmvmax, products, videos, affiliate, covers, errors };
       if (!ok) out.error = errors.join(' | ');
       return out;
     } finally { syncing = false; }

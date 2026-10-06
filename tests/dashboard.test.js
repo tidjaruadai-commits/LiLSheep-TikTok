@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildOverview, buildShops, buildAds, buildClips, buildGmvMax, buildVideos, buildAffiliate, buildTrend, buildProducts, buildInsights, buildAdChannels } from '../lib/dashboard.js';
+import { buildOverview, buildShops, buildAds, buildClips, buildGmvMax, buildVideos, buildAffiliate, buildTrend, buildProducts, buildProductsMeta, productsFromClips, buildInsights, buildAdChannels } from '../lib/dashboard.js';
 
 const shopMonthly = [
   { shop_key: 'S1', gmv: 1000, refund: 50, orders: 10, units: 12, gmv_live: 400, gmv_video: 500, gmv_product_card: 100, top_products: [{ name: 'A' }], live_sessions: [] },
@@ -218,8 +218,8 @@ test('buildAdChannels is safe on empty input', () => {
   assert.deepEqual([a.brand.spend, a.creator.spend, a.clips_total], [0, 0, 0]);
 });
 
-test('buildProducts aggregates clips by product with gmv/orders/views/clips + ad cost/roi (recomputed)', () => {
-  const p = buildProducts(productRows);
+test('productsFromClips aggregates clips by product with gmv/orders/views/clips + ad cost/roi (recomputed)', () => {
+  const p = productsFromClips(productRows);
   assert.deepEqual(p.map((x) => x.product), ['Sleep Well', 'Lion mane']);   // by gmv desc
   const sw = p[0];
   assert.deepEqual([sw.clips, sw.gmv, sw.orders, sw.views], [2, 150, 4, 1500]);
@@ -227,6 +227,65 @@ test('buildProducts aggregates clips by product with gmv/orders/views/clips + ad
   assert.equal(sw.ad_gross_revenue, 200);
   assert.equal(sw.ad_roi, 4);   // round2(200/50)
   assert.ok(!p.some((x) => x.product === ''), 'blank product skipped');
+});
+
+// The Products tab has to reconcile with Seller Center. The clip-only total was about a quarter of
+// the shop's GMV, so these pin the seller numbers as the source of truth and clips as the add-on.
+const sellerRows = [
+  { month: '2026-09', product_id: 'p1', name: 'Lion mane', gmv: 9000, orders: 90, items_sold: 120 },
+  { month: '2026-09', product_id: 'p2', name: 'Sleep Well', gmv: 30000, orders: 300, items_sold: 410 },
+  { month: '2026-09', product_id: 'p3', name: 'Never in a clip', gmv: 500, orders: 5, items_sold: 5 },
+];
+
+test('buildProducts takes sales/orders/units from Seller Center and ranks by them, not by clip GMV', () => {
+  const p = buildProducts(sellerRows, productRows);
+  assert.deepEqual(p.map((x) => x.product), ['Sleep Well', 'Lion mane', 'Never in a clip']);
+  const sw = p[0];
+  // Seller Center's number, NOT the clips' 150
+  assert.deepEqual([sw.gmv, sw.orders, sw.units], [30000, 300, 410]);
+});
+
+test('buildProducts joins the clip stats (views, clips, ad cost, roi) onto the seller rows by name', () => {
+  const sw = buildProducts(sellerRows, productRows).find((x) => x.product === 'Sleep Well');
+  assert.deepEqual([sw.clips, sw.views, sw.ad_cost, sw.ad_gross_revenue, sw.ad_roi], [2, 1500, 50, 200, 4]);
+  const none = buildProducts(sellerRows, productRows).find((x) => x.product === 'Never in a clip');
+  assert.deepEqual([none.clips, none.views, none.ad_cost, none.ad_roi], [0, 0, 0, 0], 'no clips -> zeros, still listed with its real sales');
+});
+
+test('buildProducts matches names case- and whitespace-insensitively', () => {
+  const p = buildProducts([{ product_id: 'p2', name: '  sleep   WELL ', gmv: 100, orders: 1, items_sold: 1 }], productRows);
+  assert.equal(p[0].clips, 2);
+});
+
+test('two products sharing a title get the clip stats ONCE (the bigger one), so views and ad spend are not doubled', () => {
+  const dup = [
+    { product_id: 'a', name: 'Sleep Well', gmv: 5000, orders: 50, items_sold: 50 },
+    { product_id: 'b', name: 'Sleep Well', gmv: 100, orders: 1, items_sold: 1 },
+  ];
+  const p = buildProducts(dup, productRows);
+  assert.equal(p.filter((x) => x.views > 0).length, 1);
+  assert.equal(p.find((x) => x.product_id === 'a').views, 1500);
+  assert.equal(p.find((x) => x.product_id === 'b').views, 0);
+});
+
+test('buildProducts falls back to the clip-only list while no Seller Center rows exist', () => {
+  assert.deepEqual(buildProducts([], productRows), productsFromClips(productRows));
+  assert.deepEqual(buildProducts(undefined, productRows), productsFromClips(productRows));
+});
+
+test('buildProductsMeta reports the source and how the product total compares with the shop GMV', () => {
+  const m = buildProductsMeta(sellerRows, [{ gmv: 40000 }, { gmv: 1000 }]);
+  assert.equal(m.source, 'seller');
+  assert.equal(m.sellerGmv, 39500);
+  assert.equal(m.shopGmv, 41000);
+  assert.equal(m.coveragePct, 96.3);   // 39500 / 41000
+});
+
+test('buildProductsMeta says "clips" with no coverage figure when there are no Seller Center rows', () => {
+  const m = buildProductsMeta([], [{ gmv: 41000 }]);
+  assert.equal(m.source, 'clips');
+  assert.equal(m.coveragePct, null);
+  assert.equal(buildProductsMeta(sellerRows, []).coveragePct, null, 'no shop GMV -> no division by zero');
 });
 
 test('buildVideos passes each clip cover_url through to the leaderboard rows (for the card thumbnails)', () => {

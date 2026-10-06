@@ -49,6 +49,7 @@ connectors/report-pilot.js  ตัวต่อ gateway (clients/shop-metrics/ad-
 lib/shop-sync.js          ดึงยอดร้าน → m039_shops / m039_shop_monthly
 lib/ads-sync.js           ดึงโฆษณา → m039_ads_monthly / m039_ads_items
 lib/gmvmax-sync.js        ดึง GMV Max → m039_gmvmax_monthly
+lib/product-sync.js       ดึงยอดขายรายสินค้าจาก Seller Center (ทุกช่องทาง) → m039_product_monthly
 lib/video-sync.js         ดึงเมตริกรายคลิป → m039_video_monthly
 lib/affiliate-sync.js     ดึงข้อมูล affiliate → m039_affiliate_monthly / m039_affiliate_creators
 lib/cover-archive.js      เก็บรูปปกคลิป → bucket m039-covers

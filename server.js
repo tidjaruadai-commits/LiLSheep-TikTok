@@ -10,6 +10,7 @@ import { saveSecret, loadSecret } from './lib/secret-store.js';
 import { syncShopMetrics } from './lib/shop-sync.js';
 import { syncAds } from './lib/ads-sync.js';
 import { syncGmvMax } from './lib/gmvmax-sync.js';
+import { syncProducts } from './lib/product-sync.js';
 import { syncVideos } from './lib/video-sync.js';
 import { syncAffiliate } from './lib/affiliate-sync.js';
 import { archiveCovers } from './lib/cover-archive.js';
@@ -79,6 +80,7 @@ const controller = createTikTokController({
   syncShop: ({ client, month }) => syncShopMetrics({ cfg, client, month }),
   syncAds: ({ client, advertiserIds, months }) => syncAds({ cfg, client, advertiserIds, months }),
   syncGmvMax: ({ client, advertiserIds, months }) => syncGmvMax({ cfg, client, advertiserIds, months }),
+  syncProducts: ({ client, clientId, months }) => syncProducts({ cfg, client, clientId, months }),
   syncVideos: ({ client, clientId, advertiserIds, months, detailBudgetMs, coverBudgetMs }) => syncVideos({ cfg, client, clientId, advertiserIds, months, detailBudgetMs, coverBudgetMs }),
   syncAffiliate: ({ client, clientId, months }) => syncAffiliate({ cfg, client, clientId, months }),
   archiveCovers: (opts) => archiveCovers({ cfg, ...(opts || {}) }),   // controller passes its remaining budgetMs

@@ -170,3 +170,39 @@ test('createTikTokRouter: a rejecting controller.connect returns 500, not a cras
     assert.equal(r.status, 500);
   } finally { server.close(); }
 });
+
+test('products sync runs before the per-clip steps, receives the client id, and a failure there never stops them', async () => {
+  const ran = [];
+  const theClient = { getAdvertiserIds: async () => [], getClientId: async () => 'uuid-1' };
+  const ctrl = createTikTokController({
+    cfg: {}, saveKey: async () => true, loadKey: async () => 'rpt_' + 'a'.repeat(24),
+    makeClient: () => theClient,
+    syncShop: async () => ({ ok: true }),
+    syncProducts: async ({ client, clientId, months }) => {
+      ran.push(['products', client === theClient, clientId, months]);
+      return { ok: false, results: [{ month: '2026-09', error: 'shop_products ใช้ไม่ได้ — 202509: nope | 202405: nope' }] };
+    },
+    syncVideos: async () => { ran.push(['videos']); return { ok: true }; },
+    syncAffiliate: async () => { ran.push(['affiliate']); return { ok: true }; },
+    archiveCovers: async () => ({ ok: true }),
+  });
+  const r = await ctrl.sync(['2026-09']);
+  assert.deepEqual(ran, [['products', true, 'uuid-1', ['2026-09']], ['videos'], ['affiliate']], 'products first, and the later steps still ran');
+  assert.equal(r.ok, false);
+  assert.deepEqual(r.errors, ['products 2026-09: shop_products ใช้ไม่ได้ — 202509: nope | 202405: nope']);
+  assert.equal(r.products.ok, false, 'the products result is included in the sync summary');
+});
+
+test('products sync alone is enough to resolve the client id (no videos/affiliate jobs wired)', async () => {
+  const seen = [];
+  const ctrl = createTikTokController({
+    cfg: {}, saveKey: async () => true, loadKey: async () => 'rpt_' + 'a'.repeat(24),
+    makeClient: () => ({ getAdvertiserIds: async () => [], getClientId: async () => 'uuid-9' }),
+    syncShop: async () => ({ ok: true }),
+    syncProducts: async ({ clientId }) => { seen.push(clientId); return { ok: true, results: [] }; },
+    archiveCovers: async () => ({ ok: true }),
+  });
+  const r = await ctrl.sync(['2026-09']);
+  assert.equal(r.ok, true);
+  assert.deepEqual(seen, ['uuid-9']);
+});

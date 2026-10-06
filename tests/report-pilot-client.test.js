@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createReportPilotClient } from '../connectors/report-pilot.js';
+import { createReportPilotClient, readShopProduct, TIKTOK_OUTSIDE_LOOKBACK } from '../connectors/report-pilot.js';
 
 function clientWith(routes) {
   // routes: (path, search) => { status, body }
@@ -298,4 +298,104 @@ test('getGmvMaxStores keeps the own shop even when store/list reports it unavail
   const stores = await c.getGmvMaxStores('adv');
   assert.deepEqual(stores.map((s) => s.store_id), ['7494703669286898633']);
   assert.equal(stores[0].source, 'own_shop');
+});
+
+// ---- shop_products/performance: per-product sales, all channels (what Seller Center shows) ----
+
+test('readShopProduct reads the flat shape (gmv.amount, sku_orders, items_sold, name)', () => {
+  assert.deepEqual(
+    readShopProduct({ id: 'p1', name: 'Sleep  Well', gmv: { amount: '30000.50', currency: 'THB' }, sku_orders: '300', items_sold: 410 }),
+    { id: 'p1', name: 'Sleep Well', gmv: 30000.5, orders: 300, items_sold: 410 });
+});
+
+test('readShopProduct reads the nested sales.overall shape and the title/product_id aliases', () => {
+  assert.deepEqual(
+    readShopProduct({ product_id: 7, title: 'Lion mane', sales: { overall: { gmv: { amount: '9000' }, orders: 90, units_sold: 120 } } }),
+    { id: '7', name: 'Lion mane', gmv: 9000, orders: 90, items_sold: 120 });
+});
+
+test('readShopProduct keeps gmv null (not 0) when nothing parses, and returns null without an id', () => {
+  assert.equal(readShopProduct({ id: 'p1', name: 'x' }).gmv, null);
+  assert.equal(readShopProduct({ name: 'no id', gmv: { amount: '5' } }), null);
+  assert.equal(readShopProduct({ id: 'p1', gmv: { amount: '0' } }).gmv, 0, 'a real zero is still a number');
+});
+
+const PRODUCTS_PATH = (v) => `/gateway/shop/c1/analytics/${v}/shop_products/performance`;
+const okPage = (shop_products, next_page_token = '') => ({ status: 200, body: { code: 0, data: { shop_products, next_page_token } } });
+const flat = (id, gmv) => ({ id, name: 'P' + id, gmv: { amount: String(gmv) }, sku_orders: 1, items_sold: 1 });
+
+test('fetchShopProducts sends the exclusive month range, sorts by gmv and follows next_page_token', async () => {
+  const seen = [];
+  const c = clientWith((p, q) => {
+    if (p === PRODUCTS_PATH('202509')) {
+      seen.push(Object.fromEntries(q));
+      return q.get('page_token') ? okPage([flat('2', 50)]) : okPage([flat('1', 100)], 'tok2');
+    }
+    return { status: 404, body: {} };
+  });
+  const out = await c.fetchShopProducts('c1', '2026-09');
+  assert.equal(out.version, '202509');
+  assert.equal(out.truncated, false);
+  assert.deepEqual(out.products.map((p) => p.id), ['1', '2']);
+  assert.equal(seen[0].start_date_ge, '2026-09-01');
+  assert.equal(seen[0].end_date_lt, '2026-10-01');
+  assert.equal(seen[0].sort_field, 'gmv');
+  assert.equal(seen[0].sort_order, 'DESC');
+  assert.equal(seen[0].currency, 'LOCAL');
+  assert.equal(seen[1].page_token, 'tok2');
+});
+
+test('fetchShopProducts falls back to 202405 when 202509 refuses, and remembers the version that worked', async () => {
+  const hits = [];
+  const c = clientWith((p) => {
+    hits.push(p);
+    if (p === PRODUCTS_PATH('202509')) return { status: 200, body: { code: 36009004, message: 'path not found' } };
+    if (p === PRODUCTS_PATH('202405')) return okPage([flat('1', 100)]);
+    return { status: 404, body: {} };
+  });
+  const first = await c.fetchShopProducts('c1', '2026-09');
+  assert.equal(first.version, '202405');
+  assert.deepEqual(hits, [PRODUCTS_PATH('202509'), PRODUCTS_PATH('202405')]);
+  hits.length = 0;
+  await c.fetchShopProducts('c1', '2026-08');
+  assert.deepEqual(hits, [PRODUCTS_PATH('202405')], 'the dead version is not retried for later months');
+});
+
+test('the 180-day lookback wall is thrown at once, not retried on the other version', async () => {
+  const hits = [];
+  const c = clientWith((p) => { hits.push(p); return { status: 200, body: { code: TIKTOK_OUTSIDE_LOOKBACK, message: 'outside the lookback window' } }; });
+  await assert.rejects(() => c.fetchShopProducts('c1', '2026-01'), (e) => e.ttCode === TIKTOK_OUTSIDE_LOOKBACK);
+  assert.equal(hits.length, 1);
+});
+
+test('an auth failure is thrown at once too — it is not a version problem', async () => {
+  const hits = [];
+  const c = clientWith((p) => { hits.push(p); return { status: 401, body: { detail: 'nope' } }; });
+  await assert.rejects(() => c.fetchShopProducts('c1', '2026-09'), (e) => e.code === 'RP_AUTH');
+  assert.equal(hits.length, 1);
+});
+
+test('when both versions fail the error names BOTH reasons', async () => {
+  const c = clientWith((p) => ({ status: 200, body: { code: 40001, message: 'reason for ' + p.split('/')[5] } }));
+  await assert.rejects(() => c.fetchShopProducts('c1', '2026-09'), (e) =>
+    /202509: reason for 202509/.test(e.message) && /202405: reason for 202405/.test(e.message));
+});
+
+test('rows with no readable gmv are refused loudly, naming the fields seen, instead of stored as zeros', async () => {
+  const c = clientWith(() => okPage([{ id: '1', weird: { shape: 1 } }, { id: '2', weird: {} }]));
+  await assert.rejects(() => c.fetchShopProducts('c1', '2026-09'), (e) =>
+    /อ่านยอดขาย/.test(e.message) && /id, weird/.test(e.message) && /202509/.test(e.message) && /202405/.test(e.message));
+});
+
+test('an empty product list is a normal empty result, not an error', async () => {
+  const c = clientWith(() => okPage([]));
+  const out = await c.fetchShopProducts('c1', '2026-09');
+  assert.deepEqual(out.products, []);
+});
+
+test('a list still paging at maxPages is reported as truncated', async () => {
+  const c = clientWith((p, q) => okPage([flat(String(q.get('page_token') || 'a'), 1)], 'more'));
+  const out = await c.fetchShopProducts('c1', '2026-09', { maxPages: 2 });
+  assert.equal(out.truncated, true);
+  assert.equal(out.products.length, 2);
 });
