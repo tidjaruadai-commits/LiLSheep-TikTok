@@ -75,7 +75,9 @@ export function createTikTokController(deps) {
           if (syncProducts) {
             products = await step('products', () => syncProducts({ client: c, clientId, months }));
             if (products && products.ok === false) (products.results || []).filter((r) => r.error).forEach((r) => errors.push(`products ${r.month || ''}: ${r.error}`));
-            for (const r of ((products && products.results) || [])) if (r.imageWarning && !warnings.includes(r.imageWarning)) warnings.push(r.imageWarning);
+            for (const r of ((products && products.results) || [])) {
+              for (const w of [r.nameWarning, r.imageWarning]) if (w && !warnings.includes(w)) warnings.push(w);
+            }
           }
           if (syncVideos) {
             const leftForVideos = budgetMs - (Date.now() - started);

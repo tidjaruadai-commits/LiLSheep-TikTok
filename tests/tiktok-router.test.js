@@ -235,3 +235,19 @@ test('a sync with nothing to warn about returns an empty warnings list', async (
   const r = await ctrl.sync(['2026-09']);
   assert.deepEqual(r.warnings, []);
 });
+
+test('name and picture warnings both reach `warnings`, once each, without failing the sync', async () => {
+  const ctrl = createTikTokController({
+    cfg: {}, saveKey: async () => true, loadKey: async () => 'rpt_' + 'a'.repeat(24),
+    makeClient: () => ({ getAdvertiserIds: async () => [], getClientId: async () => 'uuid-1' }),
+    syncShop: async () => ({ ok: true }),
+    syncProducts: async () => ({ ok: true, results: [
+      { month: '2026-08', ok: true, nameWarning: 'ชื่อสินค้า: video list down', imageWarning: 'รูปสินค้า: no permission' },
+      { month: '2026-09', ok: true, nameWarning: 'ชื่อสินค้า: video list down' },
+    ] }),
+    archiveCovers: async () => ({ ok: true }),
+  });
+  const r = await ctrl.sync(['2026-08', '2026-09']);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.warnings, ['ชื่อสินค้า: video list down', 'รูปสินค้า: no permission']);
+});

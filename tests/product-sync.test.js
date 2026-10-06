@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mapProducts, syncProducts, syncProductImages, isPublicHttps } from '../lib/product-sync.js';
+import { mapProducts, syncProducts, syncProductImages, isPublicHttps, namesFromVideos, syncProductNames } from '../lib/product-sync.js';
 import { TIKTOK_OUTSIDE_LOOKBACK, TIKTOK_APP_GROUP_RATE_LIMIT } from '../connectors/report-pilot.js';
 
 const cfg = { supabaseUrl: 'https://x.supabase.co', supabaseAnonKey: 'a', m039Jwt: 'j' };
@@ -255,4 +255,65 @@ test('the picture time budget is one pool for the whole call, not renewed for ev
   const res = await syncProducts({ cfg, client, clientId: 'c1', months: ['2026-08', '2026-09'], fetchImpl, imageBudgetMs: 0 });
   assert.equal(fetchedCount, 0, 'with no budget left no picture is fetched for any month');
   assert.deepEqual(res.results.map((r) => r.images), [{ skipped: 'budget' }, { skipped: 'budget' }]);
+});
+
+// ---- product names (the sales list has none; shop videos list { id, name }) ----
+
+test('namesFromVideos maps each product id to its first non-empty name', () => {
+  const m = namesFromVideos([
+    { products: [{ id: '1731721702603327489', name: '  Lilsheep  โปรตีนกระจก ' }, { id: '22', name: '' }] },
+    { products: [{ id: '1731721702603327489', name: 'a later name is ignored' }, { id: '22', name: 'Second' }] },
+    { products: 'not a list' }, null, { products: [{ id: 'not-digits', name: 'x' }, { name: 'no id' }] },
+  ]);
+  assert.deepEqual(m, { '1731721702603327489': 'Lilsheep โปรตีนกระจก', 22: 'Second' });
+});
+
+function nameNet({ known = [], tableStatus = 200 } = {}) {
+  const calls = [];
+  const fetchImpl = async (url, opts = {}) => {
+    const u = String(url);
+    calls.push({ url: u, method: opts.method || 'GET', body: opts.body });
+    const json = (status, body) => ({ status, async text() { return body == null ? '' : JSON.stringify(body); } });
+    if (u.includes('/rest/v1/m039_product_names?select=')) return json(tableStatus, known.map((id) => ({ product_id: id })));
+    return json(201, null);
+  };
+  return { calls, fetchImpl };
+}
+
+test('syncProductNames stores every name the video list gives that is not stored yet', async () => {
+  const { calls, fetchImpl } = nameNet({ known: ['1'] });
+  let pages;
+  const client = { fetchShopVideos: async (cid, month, opts) => { pages = opts.maxPages; return [{ products: [{ id: '1', name: 'Known' }, { id: '2', name: 'Two' }, { id: '9', name: 'Other month' }] }]; } };
+  const out = await syncProductNames({ cfg, client, clientId: 'c1', month: '2026-09', products: [{ id: '1' }, { id: '2' }, { id: '3' }], fetchImpl });
+  assert.deepEqual(out, { added: 2, unnamed: 1 }, 'product 3 never appears in a clip');
+  const body = JSON.parse(calls.find((c) => c.url.includes('m039_product_names?on_conflict=product_id')).body);
+  assert.deepEqual(body.map((r) => [r.product_id, r.name]), [['2', 'Two'], ['9', 'Other month']]);
+  assert.equal(pages, 5);
+});
+
+test('syncProductNames does not call TikTok when every product of the month already has a name', async () => {
+  const { calls, fetchImpl } = nameNet({ known: ['1', '2'] });
+  const client = { fetchShopVideos: async () => { throw new Error('must not be called'); } };
+  const out = await syncProductNames({ cfg, client, clientId: 'c1', month: '2026-09', products: [{ id: '1' }, { id: '2' }], fetchImpl });
+  assert.deepEqual(out, { added: 0, unnamed: 0 });
+  assert.equal(calls.filter((c) => c.method === 'POST').length, 0);
+});
+
+test('syncProductNames reports an unreadable names table instead of throwing', async () => {
+  const { fetchImpl } = nameNet({ tableStatus: 500 });
+  const out = await syncProductNames({ cfg, client: { fetchShopVideos: async () => [] }, clientId: 'c1', month: '2026-09', products: [{ id: '1' }], fetchImpl });
+  assert.match(out.error, /HTTP 500/);
+});
+
+test('syncProducts names the month after writing its sales, and a naming failure never fails the month', async () => {
+  const { fetchImpl } = nameNet();
+  const client = {
+    fetchShopProducts: async () => ({ version: '202509', truncated: false, products: [{ id: '5', name: '', gmv: 100, orders: 1, items_sold: 1 }] }),
+    fetchShopVideos: async () => { throw new Error('video list down'); },
+  };
+  const res = await syncProducts({ cfg, client, clientId: 'c1', months: ['2026-09'], fetchImpl });
+  assert.equal(res.ok, true);
+  assert.equal(res.results[0].names.error, 'video list down');
+  assert.equal(res.results[0].nameWarning, 'ชื่อสินค้า: video list down');
+  assert.equal(res.results[0].error, undefined);
 });

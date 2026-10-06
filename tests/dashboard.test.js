@@ -394,3 +394,18 @@ test('buildProductsMeta counts how many of the LISTED products have a picture', 
   assert.equal(m.withImage, 1, 'pictures of products not in this month are not counted');
   assert.equal(buildProductsMeta([], [], []).withImage, 0);
 });
+
+test('buildProducts takes the name from the names table by id when the sales row has none', () => {
+  const rows = [{ product_id: '1731721702603327489', name: '', gmv: 30000, orders: 300, items_sold: 410 }, { product_id: '2', name: '', gmv: 10, orders: 1, items_sold: 1 }];
+  const p = buildProducts(rows, productRows, [], [{ product_id: '1731721702603327489', name: 'Sleep Well' }]);
+  assert.equal(p[0].name, 'Sleep Well');
+  assert.equal(p[0].product, 'Sleep Well');
+  assert.equal(p[0].clips, 2, 'with the name known, the clip stats join on again');
+  assert.equal(p[1].name, '', 'no name known -> empty, the page shows "ไม่ทราบชื่อสินค้า"');
+  assert.equal(p[1].product, 'ID 2', 'the chart label falls back to the id');
+});
+
+test('a name on the sales row itself wins over the names table', () => {
+  const p = buildProducts([{ product_id: '9', name: 'From sales', gmv: 1, orders: 1, items_sold: 1 }], [], [], [{ product_id: '9', name: 'From table' }]);
+  assert.equal(p[0].name, 'From sales');
+});

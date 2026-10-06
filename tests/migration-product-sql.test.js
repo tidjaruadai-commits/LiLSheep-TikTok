@@ -37,3 +37,16 @@ test('m039_product_images: RLS with exactly one policy TO m039_app, grants, and 
   assert.match(imgSql, /grant\s+select,\s*insert,\s*update,\s*delete\s+on\s+m039_product_images\s+to\s+m039_app/i);
   assert.match(imgSql, /revoke all on table m039_product_images from anon, authenticated, public/i);
 });
+
+const namesSql = readFileSync(new URL('../supabase/migrations/20261006_m039_product_names.sql', import.meta.url), 'utf8');
+
+test('m039_product_names: one row per product, RLS with one policy TO m039_app, grants and the anon revoke', () => {
+  assert.match(namesSql, /create table if not exists m039_product_names\b/i);
+  assert.match(namesSql, /product_id text primary key/i);
+  assert.match(namesSql, /alter table m039_product_names\s+enable row level security/i);
+  const policies = namesSql.match(/create policy[\s\S]*?;/gi) || [];
+  assert.equal(policies.length, 1);
+  assert.match(policies[0], /to\s+m039_app/i);
+  assert.match(namesSql, /grant\s+select,\s*insert,\s*update,\s*delete\s+on\s+m039_product_names\s+to\s+m039_app/i);
+  assert.match(namesSql, /revoke all on table m039_product_names from anon, authenticated, public/i);
+});

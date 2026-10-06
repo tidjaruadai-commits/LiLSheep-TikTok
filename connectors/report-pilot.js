@@ -15,6 +15,37 @@ export const TIKTOK_OUTSIDE_LOOKBACK = 28001022;
 
 const pad = (n) => String(n).padStart(2, '0');
 
+// TikTok ids are 19-digit integers. Where an API sends one as a bare JSON number, JSON.parse rounds
+// it to the nearest double: 1731721702603327489 arrives as 1731721702603327500 — an id that matches
+// nothing in Seller Center, with no error anywhere. So, before parsing, any integer too large to be
+// exact is wrapped in quotes and arrives as its exact digits. Only bare numbers outside strings are
+// touched; decimals, exponents and safe integers are left as they are.
+export function parseJsonExact(text) {
+  const s = String(text);
+  const n = s.length;
+  let out = '', from = 0, inStr = false;
+  for (let i = 0; i < n; i++) {
+    const c = s.charCodeAt(i);
+    if (inStr) {
+      if (c === 92) i++;               // backslash: skip the escaped character
+      else if (c === 34) inStr = false; // closing quote
+      continue;
+    }
+    if (c === 34) { inStr = true; continue; }
+    if (c === 45 || (c >= 48 && c <= 57)) {
+      let j = c === 45 ? i + 1 : i;
+      while (j < n && s.charCodeAt(j) >= 48 && s.charCodeAt(j) <= 57) j++;
+      const next = s[j];
+      if (next !== '.' && next !== 'e' && next !== 'E' && !Number.isSafeInteger(Number(s.slice(i, j)))) {
+        out += s.slice(from, i) + '"' + s.slice(i, j) + '"';
+        from = j;
+      }
+      i = j - 1;
+    }
+  }
+  return JSON.parse(out + s.slice(from));
+}
+
 // A money/number field TikTok sends as {amount:"12.3",currency:"THB"}, a bare "12.3" or a number.
 // First candidate that parses wins; null when none does, so "absent" stays distinct from 0.
 const amountOf = (...cands) => {
@@ -143,7 +174,7 @@ export function createReportPilotClient({ base = 'https://api.tidjaruad.co', get
     const resp = await gatewayFetch(url, key, apiPath);
     if (resp.status === 401 || resp.status === 403) { const e = new Error('Token ไม่ถูกต้องหรือถูกยกเลิก'); e.code = 'RP_AUTH'; throw e; }
     const text = await resp.text();
-    let json = null; try { json = text ? JSON.parse(text) : null; } catch { json = null; }
+    let json = null; try { json = text ? parseJsonExact(text) : null; } catch { json = null; }
     if (resp.status < 200 || resp.status >= 300) {
       const e = new Error((json && (json.detail || json.message || json.error)) || `Report Pilot error (HTTP ${resp.status})`);
       e.code = 'RP_ERROR';
@@ -193,7 +224,7 @@ export function createReportPilotClient({ base = 'https://api.tidjaruad.co', get
     const resp = await gatewayFetch(url, key, apiPath);
     if (resp.status === 401 || resp.status === 403) { const e = new Error('Token ไม่ถูกต้องหรือถูกยกเลิก'); e.code = 'RP_AUTH'; throw e; }
     const text = await resp.text();
-    let json = null; try { json = text ? JSON.parse(text) : null; } catch { json = null; }
+    let json = null; try { json = text ? parseJsonExact(text) : null; } catch { json = null; }
     const verdict = classifyAds(resp.status, json);
     if (verdict === 'noData') return { noData: true };
     if (verdict === 'error') {

@@ -84,10 +84,13 @@
   .pthumb img{position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block; background:#fff;}
   .prank{position:absolute; top:0; left:0; min-width:19px; height:19px; padding:0 5px; border-radius:0 0 9px 0; background:rgba(43,39,64,.62); color:#fff; font-size:10.5px; font-weight:500; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(2px);}
   .prank.r1{background:#c0850f;} .prank.r2{background:#7d7a93;} .prank.r3{background:#a8674a;}
-  .ptext{display:flex; flex-direction:column; align-items:flex-start; gap:4px; min-width:0;}
-  .pname{font-weight:500; color:var(--ink); line-height:1.35; white-space:normal; max-width:360px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;}
-  .pid{font:inherit; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:11px; color:var(--muted); background:var(--card-2); border:1px solid var(--hairline); border-radius:6px; padding:1px 7px; cursor:copy; letter-spacing:.2px;}
-  .pid:hover{color:var(--pri-ink); border-color:rgba(109,99,201,.35); background:var(--pri-tint);}
+  .ptext{display:flex; flex-direction:column; align-items:flex-start; gap:6px; min-width:0;}
+  .pname{font-size:14px; font-weight:500; color:var(--ink); line-height:1.4; white-space:normal; max-width:420px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;}
+  .pname.unknown{font-weight:400; font-style:italic; color:var(--muted);}
+  .pid{display:inline-flex; align-items:center; gap:6px; font:inherit; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12.5px; color:var(--sub); background:var(--card-2); border:1px solid var(--line); border-radius:7px; padding:2px 8px; cursor:pointer; letter-spacing:.3px;}
+  .pid .pid-k{font-family:'Kanit',sans-serif; font-size:10.5px; font-weight:500; color:var(--pri-ink); letter-spacing:.5px;}
+  .pid svg{opacity:.55;}
+  .pid:hover{color:var(--pri-ink); border-color:rgba(109,99,201,.4); background:var(--pri-tint);} .pid:hover svg{opacity:1;}
   .pbar{height:4px; border-radius:3px; background:var(--pri-tint); margin-top:6px; overflow:hidden; min-width:70px;} .pbar i{display:block; height:100%; border-radius:3px; background:var(--sales);}
   h3.mini{font-size:13.5px; font-weight:500; margin-bottom:12px; display:flex; align-items:center; gap:8px; color:var(--ink);}
   .obj-group{margin-bottom:26px;} .obj-head{display:flex; align-items:center; gap:9px; margin:0 0 12px; font-size:14px; font-weight:500; color:var(--ink);}
@@ -337,11 +340,15 @@
       // The product cell: picture, name, ID. The picture sits over a lettered tile, so a product with no
       // picture yet — or one whose image fails to load — falls back to a tile instead of a broken icon.
       const BOX='<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"><path d="M20 7l-8-4-8 4 8 4 8-4z"/><path d="M4 7v10l8 4 8-4V7"/><path d="M12 11v10"/></svg>';
+      const COPY='<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>';
       const cell=(p,i)=>{
         const img=p.image?`<img src="${esc(p.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">`:'';
+        // Seller rows carry `name` ('' when not known yet); clip-only fallback rows only have `product`.
+        const nm=('name' in p)?p.name:p.product;
+        const nameHtml=nm?`<span class="pname" title="${esc(nm)}">${esc(nm)}</span>`:'<span class="pname unknown">ไม่ทราบชื่อสินค้า</span>';
         return `<div class="pbox"><span class="pthumb ${tint(p.product_id||p.product)}"><span class="pin">${BOX}</span>${img}<span class="prank r${i<3?i+1:0}">${i+1}</span></span>`+
-          `<span class="ptext"><span class="pname" title="${esc(p.product)}">${esc(p.product)}</span>`+
-          (p.product_id?`<button type="button" class="pid" data-id="${esc(p.product_id)}" title="คลิกเพื่อคัดลอกไอดี">ID ${esc(p.product_id)}</button>`:'')+`</span></div>`;
+          `<span class="ptext">${nameHtml}`+
+          (p.product_id?`<button type="button" class="pid" data-id="${esc(p.product_id)}" title="คลิกเพื่อคัดลอกไอดี"><span class="pid-k">ID</span><span class="pid-v">${esc(p.product_id)}</span>${COPY}</button>`:'')+`</span></div>`;
       };
       const bar=(v)=>`<div class="pbar"><i style="width:${Math.max(2,Math.round((v||0)/maxG*100))}%"></i></div>`;
       document.getElementById('productTable').innerHTML='<thead><tr><th>สินค้า</th><th>ยอดขาย</th><th>ออเดอร์</th>'+(seller?'<th>ชิ้น</th>':'')+'<th>วิว</th><th>คลิป</th><th>ค่าแอด</th><th>ROI</th></tr></thead><tbody>'+
@@ -549,9 +556,9 @@
     };
     document.getElementById('productTable').addEventListener('click',async(e)=>{
       const b=e.target.closest('.pid'); if(!b)return;
-      const label='ID '+b.dataset.id, ok=await copyText(b.dataset.id);
-      b.textContent=ok?'คัดลอกแล้ว ✓':'คัดลอกไม่ได้ — ลากคลุมแล้วกด Ctrl+C';
-      setTimeout(()=>{b.textContent=label;},ok?1100:2200);
+      const v=b.querySelector('.pid-v'), id=b.dataset.id, ok=await copyText(id);
+      v.textContent=ok?'คัดลอกแล้ว ✓':'คัดลอกไม่ได้ — ลากคลุมแล้วกด Ctrl+C';
+      setTimeout(()=>{v.textContent=id;},ok?1100:2200);
     });
 
     document.getElementById('month').addEventListener('change',load);

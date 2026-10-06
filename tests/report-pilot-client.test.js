@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createReportPilotClient, readShopProduct, readProductImageUrl, TIKTOK_OUTSIDE_LOOKBACK } from '../connectors/report-pilot.js';
+import { createReportPilotClient, readShopProduct, readProductImageUrl, parseJsonExact, TIKTOK_OUTSIDE_LOOKBACK } from '../connectors/report-pilot.js';
 
 function clientWith(routes) {
   // routes: (path, search) => { status, body }
@@ -455,4 +455,37 @@ test('fetchProductImage throws at once on auth / quota instead of trying the oth
   const c = clientWith((p) => { hits.push(p); return { status: 401, body: {} }; });
   await assert.rejects(() => c.fetchProductImage('c1', '123'), (e) => e.code === 'RP_AUTH');
   assert.equal(hits.length, 1);
+});
+
+// ---- exact 19-digit ids ----
+
+test('parseJsonExact keeps a 19-digit id exact where JSON.parse would round it', () => {
+  const text = '{"id":1731721702603327489}';
+  assert.equal(JSON.parse(text).id, 1731721702603327500, 'the bug this guards against: the last digits change');
+  assert.equal(parseJsonExact(text).id, '1731721702603327489');
+});
+
+test('parseJsonExact leaves strings, safe integers, decimals and exponents alone', () => {
+  const r = parseJsonExact('{"s":"id: 1731721702603327489 \\" still in the string","n":42,"neg":-7,"safe":9007199254740991,"dec":1.5,"exp":1e30,"arr":[1729615764521061389,7],"t":true,"z":null}');
+  assert.equal(r.s, 'id: 1731721702603327489 " still in the string');
+  assert.equal(r.n, 42);
+  assert.equal(r.neg, -7);
+  assert.equal(r.safe, 9007199254740991);
+  assert.equal(r.dec, 1.5);
+  assert.equal(r.exp, 1e30);
+  assert.deepEqual(r.arr, ['1729615764521061389', 7]);
+  assert.equal(r.t, true);
+  assert.equal(r.z, null);
+});
+
+test('parseJsonExact handles a negative big integer and still throws on invalid JSON', () => {
+  assert.equal(parseJsonExact('[-1731721702603327489]')[0], '-1731721702603327489');
+  assert.throws(() => parseJsonExact('{"a":'));
+});
+
+test('product ids from the gateway come through exact end to end (fetchShopProducts)', async () => {
+  const fetchImpl = async () => ({ status: 200, async text() { return '{"code":0,"data":{"shop_products":[{"id":1731721702603327489,"gmv":{"amount":"10"}}],"next_page_token":""}}'; } });
+  const c = createReportPilotClient({ base: 'https://api.tidjaruad.co', getKey: () => 'rpt_' + 'a'.repeat(24), fetchImpl });
+  const out = await c.fetchShopProducts('c1', '2026-09');
+  assert.equal(out.products[0].id, '1731721702603327489');
 });
