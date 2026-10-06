@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mapProducts, syncProducts } from '../lib/product-sync.js';
-import { TIKTOK_OUTSIDE_LOOKBACK } from '../connectors/report-pilot.js';
+import { mapProducts, syncProducts, syncProductImages, isPublicHttps } from '../lib/product-sync.js';
+import { TIKTOK_OUTSIDE_LOOKBACK, TIKTOK_APP_GROUP_RATE_LIMIT } from '../connectors/report-pilot.js';
 
 const cfg = { supabaseUrl: 'https://x.supabase.co', supabaseAnonKey: 'a', m039Jwt: 'j' };
 
@@ -94,4 +94,165 @@ test('a malformed month is rejected without calling TikTok', async () => {
   const res = await syncProducts({ cfg, client, clientId: 'c1', months: ['2026-13'], fetchImpl });
   assert.equal(res.ok, false);
   assert.equal(res.results[0].error, 'bad month');
+});
+
+// ---- product pictures ----
+
+const PUBLIC = 'https://x.supabase.co/storage/v1/object/public/m039-covers';
+
+// A fake network: existing = product ids that already have a stored picture; imgs = url -> response.
+function net({ existing = [], imgs = {}, storageStatus = 200, tableStatus = 200 } = {}) {
+  const calls = [];
+  const fetchImpl = async (url, opts = {}) => {
+    const u = String(url);
+    calls.push({ url: u, method: opts.method || 'GET', body: opts.body, headers: opts.headers });
+    const json = (status, body) => ({ status, headers: { get: () => 'application/json' }, async text() { return body == null ? '' : JSON.stringify(body); } });
+    if (u.includes('/rest/v1/m039_product_monthly')) return json(201, null);   // the month's sales upsert + stale delete
+    if (u.includes('/rest/v1/m039_product_images?select=')) return json(tableStatus, existing.map((id) => ({ product_id: id })));
+    if (u.includes('/storage/v1/object/m039-covers/')) return { status: storageStatus, async text() { return ''; } };
+    if (u.includes('/rest/v1/m039_product_images?on_conflict')) return json(201, null);
+    if (imgs[u]) return imgs[u];
+    return { status: 404, headers: { get: () => '' }, async arrayBuffer() { return new ArrayBuffer(0); } };
+  };
+  return { calls, fetchImpl };
+}
+const png = (type = 'image/png') => ({ status: 200, headers: { get: () => type }, async arrayBuffer() { return new Uint8Array([1, 2, 3]).buffer; } });
+const prods = (...ids) => ids.map((id) => ({ id, name: 'P' + id, gmv: 1 }));
+const imgClient = (urls) => ({ fetchProductImage: async (cid, id) => ({ url: urls[id] ?? '', version: '202309' }) });
+
+test('isPublicHttps accepts a CDN url and refuses http, bare IPs, localhost and internal hosts', () => {
+  assert.equal(isPublicHttps('https://p16-oec.ibyteimg.com/a/b.jpg?x=1'), true);
+  const bad = ['http://cdn.example.com/a.jpg', 'https://127.0.0.1/a', 'https://169.254.169.254/latest', 'https://10.0.0.5/a',
+    'https://localhost/a', 'https://db.internal/a', 'https://printer.local/a', 'https://[::1]/a', 'https://nodots/a', 'not a url', ''];
+  for (const url of bad) assert.equal(isPublicHttps(url), false, url);
+});
+
+test('pictures are fetched only for products with none, copied into OUR bucket, and only OUR url is stored', async () => {
+  const { calls, fetchImpl } = net({ existing: ['1'], imgs: { 'https://cdn.example.com/p2.jpg': png() } });
+  const out = await syncProductImages({ cfg, client: imgClient({ 2: 'https://cdn.example.com/p2.jpg' }), clientId: 'c1', products: prods('1', '2'), fetchImpl });
+  assert.deepEqual(out, { withImage: 2, missing: 1, fetched: 1, noImage: 0, failed: 0, remaining: 0 });
+
+  const up = calls.find((c) => c.url.endsWith('/storage/v1/object/m039-covers/products/2.jpg'));
+  assert.ok(up, 'uploaded to products/<id>.jpg in the covers bucket');
+  assert.equal(up.method, 'POST');
+  assert.equal(up.headers['x-upsert'], 'true');
+  assert.equal(up.headers['Content-Type'], 'image/png');
+
+  const row = JSON.parse(calls.find((c) => c.url.includes('/m039_product_images?on_conflict=product_id')).body)[0];
+  assert.equal(row.product_id, '2');
+  assert.equal(row.image_url, PUBLIC + '/products/2.jpg', 'our public url, never the expiring TikTok one');
+  assert.ok(!JSON.stringify(row).includes('cdn.example.com'));
+  assert.ok(!calls.some((c) => c.url.includes('p1.jpg')), 'the product that already has a picture is not fetched again');
+});
+
+test('a product that has no picture counts as noImage and does not count toward giving up', async () => {
+  const { fetchImpl } = net({ imgs: { 'https://cdn.example.com/p4.jpg': png() } });
+  const client = { fetchProductImage: async (cid, id) => {
+    if (id === '4') return { url: 'https://cdn.example.com/p4.jpg' };
+    if (id === '1' || id === '2') throw new Error('boom');
+    return { url: '' };
+  } };
+  // 1,2 fail, 3 has no picture (resets the run of failures), 4 succeeds, 5 has none
+  const out = await syncProductImages({ cfg, client, clientId: 'c1', products: prods('1', '2', '3', '4', '5'), fetchImpl, maxFailuresInARow: 3 });
+  assert.equal(out.fetched, 1);
+  assert.equal(out.noImage, 2);
+  assert.equal(out.failed, 2);
+  assert.equal(out.stopped, undefined);
+});
+
+test('three failures in a row stop the loop and report the first reason (a missing API scope fails every product alike)', async () => {
+  const { fetchImpl } = net();
+  const seen = [];
+  const client = { fetchProductImage: async (cid, id) => { seen.push(id); throw new Error(id === '1' ? 'no permission for product.read' : 'later'); } };
+  const out = await syncProductImages({ cfg, client, clientId: 'c1', products: prods('1', '2', '3', '4', '5', '6'), fetchImpl });
+  assert.deepEqual(seen, ['1', '2', '3'], 'gave up after three, did not hammer the rest');
+  assert.equal(out.stopped, 'failures');
+  assert.equal(out.error, 'no permission for product.read');
+  assert.equal(out.remaining, 3);
+});
+
+test('the app-group rate limit stops the loop at once', async () => {
+  const { fetchImpl } = net();
+  const seen = [];
+  const client = { fetchProductImage: async (cid, id) => { seen.push(id); throw Object.assign(new Error('rate limited'), { ttCode: TIKTOK_APP_GROUP_RATE_LIMIT }); } };
+  const out = await syncProductImages({ cfg, client, clientId: 'c1', products: prods('1', '2', '3'), fetchImpl });
+  assert.deepEqual(seen, ['1']);
+  assert.equal(out.stopped, 'rate-limit');
+});
+
+test('the time budget stops new products and reports how many are left for the next run', async () => {
+  const { fetchImpl } = net({ imgs: { 'https://cdn.example.com/a.jpg': png() } });
+  const u = 'https://cdn.example.com/a.jpg';
+  let t = 0;
+  const out = await syncProductImages({ cfg, client: imgClient({ 1: u, 2: u, 3: u }), clientId: 'c1', products: prods('1', '2', '3'),
+    fetchImpl, budgetMs: 1000, now: () => (t += 600) });
+  assert.equal(out.stopped, 'budget');
+  assert.equal(out.fetched, 1);
+  assert.equal(out.remaining, 2);
+});
+
+test('a 200 that is not an image (an HTML error page) is refused, not stored as a picture', async () => {
+  const { calls, fetchImpl } = net({ imgs: { 'https://cdn.example.com/p1.jpg': png('text/html; charset=utf-8') } });
+  const out = await syncProductImages({ cfg, client: imgClient({ 1: 'https://cdn.example.com/p1.jpg' }), clientId: 'c1', products: prods('1'), fetchImpl });
+  assert.equal(out.fetched, 0);
+  assert.match(out.error, /ไม่ใช่รูป/);
+  assert.ok(!calls.some((c) => c.url.includes('/storage/v1/object/')), 'nothing uploaded');
+});
+
+test('an image url that is not public https is never downloaded', async () => {
+  const { calls, fetchImpl } = net();
+  const out = await syncProductImages({ cfg, client: imgClient({ 1: 'https://169.254.169.254/latest/meta-data' }), clientId: 'c1', products: prods('1'), fetchImpl });
+  assert.equal(out.fetched, 0);
+  assert.match(out.error, /https สาธารณะ/);
+  assert.ok(!calls.some((c) => c.url.includes('169.254')), 'the download was never attempted');
+});
+
+test('a failed bucket upload is a failure for that product and stores no row', async () => {
+  const { calls, fetchImpl } = net({ storageStatus: 500, imgs: { 'https://cdn.example.com/p1.jpg': png() } });
+  const out = await syncProductImages({ cfg, client: imgClient({ 1: 'https://cdn.example.com/p1.jpg' }), clientId: 'c1', products: prods('1'), fetchImpl });
+  assert.equal(out.fetched, 0);
+  assert.match(out.error, /HTTP 500/);
+  assert.ok(!calls.some((c) => c.url.includes('/m039_product_images?on_conflict')), 'no row pointing at a file that is not there');
+});
+
+test('non-numeric product ids are skipped without being used in a request', async () => {
+  const { calls, fetchImpl } = net();
+  const seen = [];
+  const client = { fetchProductImage: async (cid, id) => { seen.push(id); return { url: '' }; } };
+  const out = await syncProductImages({ cfg, client, clientId: 'c1', products: [{ id: '../x' }, { id: '' }, { id: '12 3' }, { id: '77' }], fetchImpl });
+  assert.deepEqual(seen, ['77']);
+  assert.equal(out.missing, 1);
+  assert.equal(calls.filter((c) => c.url.includes('products/')).length, 0);
+});
+
+test('an unreadable pictures table is reported, not thrown', async () => {
+  const { fetchImpl } = net({ tableStatus: 500 });
+  const out = await syncProductImages({ cfg, client: imgClient({}), clientId: 'c1', products: prods('1'), fetchImpl });
+  assert.match(out.error, /HTTP 500/);
+});
+
+test('syncProducts runs the picture step after the sales are written, and a picture problem never fails the month', async () => {
+  const { fetchImpl } = net();
+  const client = {
+    fetchShopProducts: async () => ({ version: '202509', truncated: false, products: [{ id: '5', name: 'A', gmv: 100, orders: 1, items_sold: 1 }] }),
+    fetchProductImage: async () => { throw new Error('no permission for product.read'); },
+  };
+  const res = await syncProducts({ cfg, client, clientId: 'c1', months: ['2026-09'], fetchImpl });
+  assert.equal(res.ok, true, 'sales synced fine, so the run is ok');
+  assert.equal(res.results[0].ok, true);
+  assert.equal(res.results[0].images.error, 'no permission for product.read');
+  assert.equal(res.results[0].imageWarning, 'รูปสินค้า: no permission for product.read');
+  assert.equal(res.results[0].error, undefined);
+});
+
+test('the picture time budget is one pool for the whole call, not renewed for every month', async () => {
+  const { fetchImpl } = net();
+  let fetchedCount = 0;
+  const client = {
+    fetchShopProducts: async () => ({ version: '202509', truncated: false, products: [{ id: '5', name: 'A', gmv: 1, orders: 1, items_sold: 1 }] }),
+    fetchProductImage: async () => { fetchedCount++; return { url: '' }; },
+  };
+  const res = await syncProducts({ cfg, client, clientId: 'c1', months: ['2026-08', '2026-09'], fetchImpl, imageBudgetMs: 0 });
+  assert.equal(fetchedCount, 0, 'with no budget left no picture is fetched for any month');
+  assert.deepEqual(res.results.map((r) => r.images), [{ skipped: 'budget' }, { skipped: 'budget' }]);
 });

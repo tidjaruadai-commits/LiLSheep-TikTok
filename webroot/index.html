@@ -74,6 +74,21 @@
   tbody tr.grand td{font-weight:500; border-top:1.5px solid rgba(43,39,64,.18);}
   .chip{display:inline-flex; align-items:center; gap:8px;} .chip .sw{width:9px;height:9px;border-radius:50%;flex:none;}
   .tbl-wrap{overflow-x:auto;} canvas{max-width:100%; max-height:260px;}
+  /* Products tab: picture + name + ID cell */
+  .pcell{position:sticky; left:0; background:var(--card); z-index:1;} tbody tr:hover .pcell{background:#f6f5fb;}
+  .pbox{display:flex; align-items:center; gap:12px; min-width:250px;}
+  .pthumb{position:relative; flex:none; width:54px; height:54px; border-radius:13px; overflow:hidden; border:1px solid var(--hairline); display:flex; align-items:center; justify-content:center;}
+  .pthumb.t0{background:linear-gradient(160deg,#efe9ff,#e4f4f6);} .pthumb.t1{background:linear-gradient(160deg,#ffe9ef,#f3e9ff);} .pthumb.t2{background:linear-gradient(160deg,#e3f5ef,#e6eefc);}
+  .pthumb.t3{background:linear-gradient(160deg,#fff1dc,#ffe6ee);} .pthumb.t4{background:linear-gradient(160deg,#e6eefc,#efe9ff);}
+  .pthumb .pin{display:flex; color:var(--pri-ink); opacity:.45;}
+  .pthumb img{position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block; background:#fff;}
+  .prank{position:absolute; top:0; left:0; min-width:19px; height:19px; padding:0 5px; border-radius:0 0 9px 0; background:rgba(43,39,64,.62); color:#fff; font-size:10.5px; font-weight:500; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(2px);}
+  .prank.r1{background:#c0850f;} .prank.r2{background:#7d7a93;} .prank.r3{background:#a8674a;}
+  .ptext{display:flex; flex-direction:column; align-items:flex-start; gap:4px; min-width:0;}
+  .pname{font-weight:500; color:var(--ink); line-height:1.35; white-space:normal; max-width:360px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;}
+  .pid{font:inherit; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:11px; color:var(--muted); background:var(--card-2); border:1px solid var(--hairline); border-radius:6px; padding:1px 7px; cursor:copy; letter-spacing:.2px;}
+  .pid:hover{color:var(--pri-ink); border-color:rgba(109,99,201,.35); background:var(--pri-tint);}
+  .pbar{height:4px; border-radius:3px; background:var(--pri-tint); margin-top:6px; overflow:hidden; min-width:70px;} .pbar i{display:block; height:100%; border-radius:3px; background:var(--sales);}
   h3.mini{font-size:13.5px; font-weight:500; margin-bottom:12px; display:flex; align-items:center; gap:8px; color:var(--ink);}
   .obj-group{margin-bottom:26px;} .obj-head{display:flex; align-items:center; gap:9px; margin:0 0 12px; font-size:14px; font-weight:500; color:var(--ink);}
   .obj-head .pill{font-size:11px; font-weight:500; padding:2px 10px; border-radius:20px; background:var(--pri-tint); color:var(--pri-ink);}
@@ -315,11 +330,22 @@
       // Say where the numbers came from every time, with the total next to the shop's own GMV, so a
       // mismatch with Seller Center is visible here instead of being discovered by someone checking.
       document.getElementById('productNote').textContent = seller
-        ? ('ยอดขาย/ออเดอร์/ชิ้น = ตัวเลขรายสินค้าจาก Seller Center (ทุกช่องทาง: LIVE · วิดีโอ · การ์ดสินค้า) · รวมสินค้า '+baht(meta.sellerGmv)+' จากยอดร้าน '+baht(meta.shopGmv)+(meta.coveragePct!=null?' ('+meta.coveragePct.toFixed(1)+'%)':'')+' · วิว/คลิป/ค่าแอด/ROI = รวมจากคลิปที่ผูกกับสินค้านั้น')
+        ? ('ยอดขาย/ออเดอร์/ชิ้น = ตัวเลขรายสินค้าจาก Seller Center (ทุกช่องทาง: LIVE · วิดีโอ · การ์ดสินค้า) · รวมสินค้า '+baht(meta.sellerGmv)+' จากยอดร้าน '+baht(meta.shopGmv)+(meta.coveragePct!=null?' ('+meta.coveragePct.toFixed(1)+'%)':'')+' · วิว/คลิป/ค่าแอด/ROI = รวมจากคลิปที่ผูกกับสินค้านั้น'+(meta.withImage<P.length?' · รูปสินค้า '+meta.withImage+'/'+P.length+' (ทยอยเพิ่มทุกครั้งที่ซิงก์)':''))
         : '⚠ ยังไม่ได้ดึงยอดรายสินค้าจาก Seller Center — ตัวเลขด้านบนรวมจากคลิปเท่านั้น (ช่องวิดีโอช่องเดียว จึงน้อยกว่ายอดจริงมากและไม่ตรงกับ Seller Center) · กด "ซิงก์" ที่แท็บตั้งค่า';
-      const cols=seller?8:7;
+      const cols=seller?8:7, maxG=Math.max(1,...P.map(p=>p.gmv||0));
+      const tint=(s)=>{let h=0;for(const ch of String(s||'')){h=(h*31+ch.charCodeAt(0))>>>0;}return 't'+(h%5);};
+      // The product cell: picture, name, ID. The picture sits over a lettered tile, so a product with no
+      // picture yet — or one whose image fails to load — falls back to a tile instead of a broken icon.
+      const BOX='<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"><path d="M20 7l-8-4-8 4 8 4 8-4z"/><path d="M4 7v10l8 4 8-4V7"/><path d="M12 11v10"/></svg>';
+      const cell=(p,i)=>{
+        const img=p.image?`<img src="${esc(p.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">`:'';
+        return `<div class="pbox"><span class="pthumb ${tint(p.product_id||p.product)}"><span class="pin">${BOX}</span>${img}<span class="prank r${i<3?i+1:0}">${i+1}</span></span>`+
+          `<span class="ptext"><span class="pname" title="${esc(p.product)}">${esc(p.product)}</span>`+
+          (p.product_id?`<button type="button" class="pid" data-id="${esc(p.product_id)}" title="คลิกเพื่อคัดลอกไอดี">ID ${esc(p.product_id)}</button>`:'')+`</span></div>`;
+      };
+      const bar=(v)=>`<div class="pbar"><i style="width:${Math.max(2,Math.round((v||0)/maxG*100))}%"></i></div>`;
       document.getElementById('productTable').innerHTML='<thead><tr><th>สินค้า</th><th>ยอดขาย</th><th>ออเดอร์</th>'+(seller?'<th>ชิ้น</th>':'')+'<th>วิว</th><th>คลิป</th><th>ค่าแอด</th><th>ROI</th></tr></thead><tbody>'+
-        (P.length?P.map(p=>`<tr><td>${esc(p.product)}</td><td><b>${baht(p.gmv)}</b></td><td>${numf(p.orders)}</td>${seller?`<td>${numf(p.units)}</td>`:''}<td>${p.views>0?numf(p.views):'<span class="muted">—</span>'}</td><td>${p.clips>0?numf(p.clips):'<span class="muted">—</span>'}</td><td>${p.ad_cost>0?baht(p.ad_cost):'<span class="muted">—</span>'}</td><td class="roas ${roiClsB(p.ad_roi,bench)}">${p.ad_roi>0?p.ad_roi.toFixed(2)+'x':'<span class="muted">—</span>'}</td></tr>`).join(''):`<tr><td colspan="${cols}" class="muted" style="text-align:center;padding:22px">ยังไม่มีข้อมูลสินค้า — กดซิงก์</td></tr>`)+'</tbody>';
+        (P.length?P.map((p,i)=>`<tr><td class="pcell">${cell(p,i)}</td><td><b>${baht(p.gmv)}</b>${bar(p.gmv)}</td><td>${numf(p.orders)}</td>${seller?`<td>${numf(p.units)}</td>`:''}<td>${p.views>0?numf(p.views):'<span class="muted">—</span>'}</td><td>${p.clips>0?numf(p.clips):'<span class="muted">—</span>'}</td><td>${p.ad_cost>0?baht(p.ad_cost):'<span class="muted">—</span>'}</td><td class="roas ${roiClsB(p.ad_roi,bench)}">${p.ad_roi>0?p.ad_roi.toFixed(2)+'x':'<span class="muted">—</span>'}</td></tr>`).join(''):`<tr><td colspan="${cols}" class="muted" style="text-align:center;padding:22px">ยังไม่มีข้อมูลสินค้า — กดซิงก์</td></tr>`)+'</tbody>';
     }
     function renderAds(dto){
       const gm=dto.gmvmax, aw=awareAll(dto.ads), ac=dto.adChannels||{brand:{spend:0,clips:0,roi:0},creator:{spend:0,clips:0,creators:0,roi:0},clips_total:0}, bench=dto.benchmark||3;
@@ -467,11 +493,12 @@
       else{cloud.className='cloud err';document.getElementById('cloudtxt').textContent='ยังไม่เชื่อมต่อ';document.getElementById('connState').textContent='ยังไม่ได้เชื่อมต่อ Report Pilot — วางโทเคนด้านล่าง';}
     }
     document.getElementById('saveToken').addEventListener('click',async()=>{const key=document.getElementById('token').value.trim();const r=await fetch('/api/tiktok/connect',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({key})}).then(r=>r.json());document.getElementById('connState').textContent=r.ok?'✅ บันทึกโทเคนแล้ว':('ผิดพลาด: '+(r.error||''));if(r.ok){document.getElementById('token').value='';refreshStatus();}});
-    document.getElementById('syncNow').addEventListener('click',async(e)=>{const others=['syncTwo','backfill'].map(id=>document.getElementById(id));e.target.disabled=true;others.forEach(b=>b.disabled=true);document.getElementById('syncState').textContent='กำลังซิงก์… (อาจใช้เวลา 2–3 นาที อย่าปิดหน้านี้)';const m=document.getElementById('month').value;try{const r=await fetch('/api/tiktok/sync',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({months:[m]})}).then(r=>r.json());document.getElementById('syncState').textContent=r.ok?'✅ ซิงก์เสร็จแล้ว':('ผิดพลาด: '+(r.error||''));if(r.ok){prevCache={};load();refreshStatus();}}catch(_){document.getElementById('syncState').textContent='ซิงก์นานเกินกำหนด ลองใหม่';}e.target.disabled=false;others.forEach(b=>b.disabled=false);});
+    document.getElementById('syncNow').addEventListener('click',async(e)=>{const others=['syncTwo','backfill'].map(id=>document.getElementById(id));e.target.disabled=true;others.forEach(b=>b.disabled=true);document.getElementById('syncState').textContent='กำลังซิงก์… (อาจใช้เวลา 2–3 นาที อย่าปิดหน้านี้)';const m=document.getElementById('month').value;try{const r=await fetch('/api/tiktok/sync',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({months:[m]})}).then(r=>r.json());document.getElementById('syncState').textContent=(r.ok?'✅ ซิงก์เสร็จแล้ว':('ผิดพลาด: '+(r.error||'')))+warnText(r);if(r.ok){prevCache={};load();refreshStatus();}}catch(_){document.getElementById('syncState').textContent='ซิงก์นานเกินกำหนด ลองใหม่';}e.target.disabled=false;others.forEach(b=>b.disabled=false);});
 
     // Backfill: one request PER MONTH, never one request for nine. The server bounds a single
     // run to fit the serverless limit, so asking for the whole year at once would be killed
     // part-way and lose the rest. Sequential, so a month's writes land before the next starts.
+    const warnText=(r)=>r&&r.warnings&&r.warnings.length?'\n⚠ '+r.warnings.join('\n⚠ '):'';
     async function syncOneMonth(m){try{return await fetch('/api/tiktok/sync',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({months:[m]})}).then(r=>r.json());}catch(_){return {ok:false,error:'หมดเวลารอ'};}}
     // Selected month + the current month, one request each (same reason as the backfill: a single
     // run is sized for one month). The month picked in the header goes first; if it already is the
@@ -482,13 +509,14 @@
       const months=picked&&picked!==cur?[picked,cur]:[cur];
       const btns=['syncNow','syncTwo','backfill'].map(id=>document.getElementById(id)),st=document.getElementById('syncState');
       btns.forEach(b=>b.disabled=true);
-      const failed=[];
+      const failed=[],warns=[];
       for(let i=0;i<months.length;i++){
         st.textContent='กำลังซิงก์ '+(i+1)+'/'+months.length+' — เดือน '+months[i]+' (ราว 2–3 นาทีต่อเดือน อย่าปิดหน้านี้)';
         const r=await syncOneMonth(months[i]);
         if(!r||!r.ok)failed.push(months[i]+(r&&r.error?' → '+r.error:''));
+        ((r&&r.warnings)||[]).forEach(w=>{if(!warns.includes(w))warns.push(w);});
       }
-      st.textContent=failed.length?('ซิงก์เสร็จแล้ว · เดือนที่มีปัญหา:\n'+failed.join('\n')):('✅ ซิงก์เสร็จแล้ว: '+months.join(' + '));
+      st.textContent=(failed.length?('ซิงก์เสร็จแล้ว · เดือนที่มีปัญหา:\n'+failed.join('\n')):('✅ ซิงก์เสร็จแล้ว: '+months.join(' + ')))+(warns.length?'\n⚠ '+warns.join('\n⚠ '):'');
       prevCache={};load();refreshStatus();
       btns.forEach(b=>b.disabled=false);
     });
@@ -508,6 +536,22 @@
       st.textContent=failed.length?('ดึงเสร็จแล้ว · เดือนที่ยังไม่ครบ: '+failed.join(', ')+' — กดซ้ำได้'):'✅ ดึงย้อนหลังครบทุกเดือนแล้ว';
       prevCache={};load();refreshStatus();
       btn.disabled=false;sync.disabled=false;two.disabled=false;
+    });
+
+    // Click an ID to copy it. The label is restored from the ID itself, so a second click inside the
+    // 1.1 s "copied" flash can never leave the button stuck on the confirmation text.
+    // The async Clipboard API is refused in some contexts (insecure origin, in-app browsers, no focus),
+    // so fall back to a selected textarea + execCommand. If both fail the button says so instead of
+    // doing nothing — a silent click reads as a broken page.
+    const copyText=(t)=>{
+      const legacy=()=>{try{const ta=document.createElement('textarea');ta.value=t;ta.setAttribute('readonly','');ta.style.cssText='position:fixed;top:-1000px;opacity:0';document.body.appendChild(ta);ta.select();const ok=document.execCommand('copy');ta.remove();return ok;}catch(_){return false;}};
+      return (navigator.clipboard&&navigator.clipboard.writeText)?navigator.clipboard.writeText(t).then(()=>true,()=>legacy()):Promise.resolve(legacy());
+    };
+    document.getElementById('productTable').addEventListener('click',async(e)=>{
+      const b=e.target.closest('.pid'); if(!b)return;
+      const label='ID '+b.dataset.id, ok=await copyText(b.dataset.id);
+      b.textContent=ok?'คัดลอกแล้ว ✓':'คัดลอกไม่ได้ — ลากคลุมแล้วกด Ctrl+C';
+      setTimeout(()=>{b.textContent=label;},ok?1100:2200);
     });
 
     document.getElementById('month').addEventListener('change',load);

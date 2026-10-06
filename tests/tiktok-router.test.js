@@ -206,3 +206,32 @@ test('products sync alone is enough to resolve the client id (no videos/affiliat
   assert.equal(r.ok, true);
   assert.deepEqual(seen, ['uuid-9']);
 });
+
+test('picture warnings are surfaced in `warnings`, de-duplicated across months, and never turn ok false', async () => {
+  const ctrl = createTikTokController({
+    cfg: {}, saveKey: async () => true, loadKey: async () => 'rpt_' + 'a'.repeat(24),
+    makeClient: () => ({ getAdvertiserIds: async () => [], getClientId: async () => 'uuid-1' }),
+    syncShop: async () => ({ ok: true }),
+    syncProducts: async () => ({ ok: true, results: [
+      { month: '2026-08', ok: true, imageWarning: 'รูปสินค้า: no permission for product.read' },
+      { month: '2026-09', ok: true, imageWarning: 'รูปสินค้า: no permission for product.read' },
+      { month: '2026-07', ok: true },
+    ] }),
+    archiveCovers: async () => ({ ok: true }),
+  });
+  const r = await ctrl.sync(['2026-08', '2026-09', '2026-07']);
+  assert.equal(r.ok, true, 'a picture problem is not a sync failure');
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.warnings, ['รูปสินค้า: no permission for product.read'], 'the same warning once, not once per month');
+});
+
+test('a sync with nothing to warn about returns an empty warnings list', async () => {
+  const ctrl = createTikTokController({
+    cfg: {}, saveKey: async () => true, loadKey: async () => 'rpt_' + 'a'.repeat(24),
+    makeClient: () => ({ getAdvertiserIds: async () => [] }),
+    syncShop: async () => ({ ok: true }),
+    archiveCovers: async () => ({ ok: true }),
+  });
+  const r = await ctrl.sync(['2026-09']);
+  assert.deepEqual(r.warnings, []);
+});

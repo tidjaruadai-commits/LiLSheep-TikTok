@@ -374,3 +374,23 @@ test('buildAffiliate is safe on empty input (no month row, no creators)', () => 
   assert.deepEqual(a.topVideo, []);
   assert.deepEqual(a.topLive, []);
 });
+
+test('buildProducts attaches the stored picture by product id, and an empty string when there is none', () => {
+  const images = [{ product_id: 'p2', image_url: 'https://cdn/p2.jpg' }, { product_id: 'zz', image_url: 'https://cdn/zz.jpg' }];
+  const p = buildProducts(sellerRows, productRows, images);
+  assert.equal(p.find((x) => x.product_id === 'p2').image, 'https://cdn/p2.jpg');
+  assert.equal(p.find((x) => x.product_id === 'p1').image, '', 'no picture -> empty string, the page then shows a lettered tile');
+  assert.ok(p.every((x) => typeof x.image === 'string'));
+});
+
+test('buildProducts ignores image rows with no url and tolerates a missing image list', () => {
+  assert.equal(buildProducts(sellerRows, productRows, [{ product_id: 'p2', image_url: '' }]).find((x) => x.product_id === 'p2').image, '');
+  assert.doesNotThrow(() => buildProducts(sellerRows, productRows));
+  assert.doesNotThrow(() => buildProducts(sellerRows, productRows, null));
+});
+
+test('buildProductsMeta counts how many of the LISTED products have a picture', () => {
+  const m = buildProductsMeta(sellerRows, [{ gmv: 41000 }], [{ product_id: 'p1', image_url: 'https://cdn/p1.jpg' }, { product_id: 'other-month-product', image_url: 'https://cdn/x.jpg' }]);
+  assert.equal(m.withImage, 1, 'pictures of products not in this month are not counted');
+  assert.equal(buildProductsMeta([], [], []).withImage, 0);
+});

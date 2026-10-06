@@ -128,6 +128,7 @@ test('loadDashboard reads m039_product_monthly for the month and the Products ta
         { month: '2026-08', product_id: 'p1', name: 'Sleep Well', gmv: 30000, orders: 300, items_sold: 410 },
         { month: '2026-08', product_id: 'p2', name: 'Lion mane', gmv: 9000, orders: 90, items_sold: 120 },
       ] :
+      u.includes('/m039_product_images') ? [{ product_id: 'p1', image_url: 'https://x.supabase.co/storage/v1/object/public/m039-covers/products/p1.jpg' }] :
       u.includes('/m039_shop_monthly?month=') ? [{ shop_key: 'S1', gmv: 41000, refund: 0, orders: 400, units: 530, gmv_live: 0, gmv_video: 0, gmv_product_card: 0 }] :
       u.includes('/m039_video_monthly?month=') ? [{ video_id: 'v1', product: 'Sleep Well', gmv: 150, orders: 4, views: 1500, ad_cost: 50, ad_gross_revenue: 200 }] : [];
     return { status: 200, async text() { return JSON.stringify(body); } };
@@ -137,7 +138,10 @@ test('loadDashboard reads m039_product_monthly for the month and the Products ta
   assert.deepEqual(dto.products.map((p) => p.product), ['Sleep Well', 'Lion mane']);
   assert.equal(dto.products[0].gmv, 30000, "Seller Center's number, not the clip's 150");
   assert.equal(dto.products[0].views, 1500, 'clip stats are joined on');
-  assert.deepEqual(dto.productsMeta, { source: 'seller', sellerGmv: 39000, shopGmv: 41000, coveragePct: 95.1 });
+  assert.ok(seen.some((u) => u.includes('/m039_product_images')), 'stored pictures are read too');
+  assert.equal(dto.products[0].image, 'https://x.supabase.co/storage/v1/object/public/m039-covers/products/p1.jpg');
+  assert.equal(dto.products[1].image, '', 'a product with no stored picture gets an empty string, never undefined');
+  assert.deepEqual(dto.productsMeta, { source: 'seller', withImage: 1, sellerGmv: 39000, shopGmv: 41000, coveragePct: 95.1 });
 });
 
 test('loadDashboard falls back to the clip-only Products list, marked as such, before products have synced', async () => {

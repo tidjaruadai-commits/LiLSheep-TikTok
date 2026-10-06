@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createReportPilotClient, readShopProduct, TIKTOK_OUTSIDE_LOOKBACK } from '../connectors/report-pilot.js';
+import { createReportPilotClient, readShopProduct, readProductImageUrl, TIKTOK_OUTSIDE_LOOKBACK } from '../connectors/report-pilot.js';
 
 function clientWith(routes) {
   // routes: (path, search) => { status, body }
@@ -398,4 +398,61 @@ test('a list still paging at maxPages is reported as truncated', async () => {
   const out = await c.fetchShopProducts('c1', '2026-09', { maxPages: 2 });
   assert.equal(out.truncated, true);
   assert.equal(out.products.length, 2);
+});
+
+// ---- product pictures: Get Product -> main_images ----
+
+test('readProductImageUrl prefers a thumbnail, falls back to the full url, and refuses non-https', () => {
+  assert.equal(readProductImageUrl({ main_images: [{ urls: ['https://cdn/full.jpg'], thumb_urls: ['https://cdn/thumb.jpg'] }] }), 'https://cdn/thumb.jpg');
+  assert.equal(readProductImageUrl({ main_images: [{ urls: ['https://cdn/full.jpg'] }] }), 'https://cdn/full.jpg');
+  assert.equal(readProductImageUrl({ main_images: [{ thumb_urls: ['http://insecure/a.jpg'], urls: ['https://cdn/ok.jpg'] }] }), 'https://cdn/ok.jpg');
+  assert.equal(readProductImageUrl({ main_images: [{ urls: ['http://insecure/a.jpg'] }] }), '');
+});
+
+test('readProductImageUrl reads the nested/alias shapes and returns "" when there is no picture', () => {
+  assert.equal(readProductImageUrl({ product: { main_images: [{ urls: ['https://cdn/n.jpg'] }] } }), 'https://cdn/n.jpg');
+  assert.equal(readProductImageUrl({ images: [{ urls: ['https://cdn/i.jpg'] }] }), 'https://cdn/i.jpg');
+  for (const bad of [{}, null, undefined, { main_images: [] }, { main_images: 'x' }, { main_images: [null, {}] }]) assert.equal(readProductImageUrl(bad), '');
+});
+
+const DETAIL_PATH = (v, id = '123') => `/gateway/shop/c1/product/${v}/products/${id}`;
+
+test('fetchProductImage asks Get Product for one id and returns the picture url', async () => {
+  const hits = [];
+  const c = clientWith((p) => { hits.push(p); return p === DETAIL_PATH('202309') ? { status: 200, body: { code: 0, data: { main_images: [{ thumb_urls: ['https://cdn/t.jpg'] }] } } } : { status: 404, body: {} }; });
+  const out = await c.fetchProductImage('c1', '123');
+  assert.deepEqual(out, { url: 'https://cdn/t.jpg', version: '202309' });
+  assert.deepEqual(hits, [DETAIL_PATH('202309')]);
+});
+
+test('a product with no picture is a normal empty result, not an error', async () => {
+  const c = clientWith(() => ({ status: 200, body: { code: 0, data: { id: '123', title: 'x' } } }));
+  assert.deepEqual(await c.fetchProductImage('c1', '123'), { url: '', version: '202309' });
+});
+
+test('fetchProductImage falls back to 202212 and then remembers it', async () => {
+  const hits = [];
+  const c = clientWith((p) => {
+    hits.push(p);
+    if (p === DETAIL_PATH('202309', '1')) return { status: 200, body: { code: 36009004, message: 'no such path' } };
+    return { status: 200, body: { code: 0, data: { main_images: [{ urls: ['https://cdn/a.jpg'] }] } } };
+  });
+  assert.equal((await c.fetchProductImage('c1', '1')).version, '202212');
+  hits.length = 0;
+  await c.fetchProductImage('c1', '2');
+  assert.deepEqual(hits, [DETAIL_PATH('202212', '2')]);
+});
+
+test('fetchProductImage refuses a non-numeric id before it can reach the URL path', async () => {
+  const hits = [];
+  const c = clientWith((p) => { hits.push(p); return { status: 200, body: { code: 0, data: {} } }; });
+  for (const bad of ['../../etc', '12/34', '', 'abc', '1 2']) await assert.rejects(() => c.fetchProductImage('c1', bad), (e) => e.code === 'BAD_PRODUCT');
+  assert.equal(hits.length, 0);
+});
+
+test('fetchProductImage throws at once on auth / quota instead of trying the other version', async () => {
+  const hits = [];
+  const c = clientWith((p) => { hits.push(p); return { status: 401, body: {} }; });
+  await assert.rejects(() => c.fetchProductImage('c1', '123'), (e) => e.code === 'RP_AUTH');
+  assert.equal(hits.length, 1);
 });

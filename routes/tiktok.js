@@ -39,6 +39,9 @@ export function createTikTokController(deps) {
     syncing = true;
     const started = Date.now();
     const errors = [];
+    // Warnings are things worth showing that must NOT fail the sync — e.g. product pictures that
+    // could not be fetched. They never flip `ok`.
+    const warnings = [];
     const step = async (label, fn) => {
       try { return await fn(); }
       catch (e) { console.error(`sync ${label}:`, e.message); errors.push(`${label}: ${e.message}`); return null; }
@@ -72,6 +75,7 @@ export function createTikTokController(deps) {
           if (syncProducts) {
             products = await step('products', () => syncProducts({ client: c, clientId, months }));
             if (products && products.ok === false) (products.results || []).filter((r) => r.error).forEach((r) => errors.push(`products ${r.month || ''}: ${r.error}`));
+            for (const r of ((products && products.results) || [])) if (r.imageWarning && !warnings.includes(r.imageWarning)) warnings.push(r.imageWarning);
           }
           if (syncVideos) {
             const leftForVideos = budgetMs - (Date.now() - started);
@@ -89,7 +93,7 @@ export function createTikTokController(deps) {
       const covers = left > 0 ? await step('covers', () => archiveCovers({ budgetMs: left })) : { ok: true, skipped: 'budget' };
       if ([...shop, ads, gmvmax, products, videos, affiliate, covers].some(Boolean)) lastSync = new Date().toISOString();   // partial progress is still a sync
       const ok = errors.length === 0;
-      const out = { ok, months, include: inc, advertiserIds, lastSync, shop, ads, gmvmax, products, videos, affiliate, covers, errors };
+      const out = { ok, months, include: inc, advertiserIds, lastSync, shop, ads, gmvmax, products, videos, affiliate, covers, errors, warnings };
       if (!ok) out.error = errors.join(' | ');
       return out;
     } finally { syncing = false; }

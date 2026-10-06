@@ -45,6 +45,20 @@ export function readShopProduct(p) {
   };
 }
 
+// The picture of one product from Get Product's `data`. TikTok nests it as main_images[] of
+// { urls, thumb_urls, ... }; a list thumbnail is plenty, so thumb_urls win and urls are the fallback.
+// '' when there is no https URL — never a made-up one.
+export function readProductImageUrl(data) {
+  const d = data || {};
+  const imgs = d.main_images || d.images || (d.product && d.product.main_images) || [];
+  for (const im of (Array.isArray(imgs) ? imgs : [])) {
+    for (const list of [im && im.thumb_urls, im && im.urls]) {
+      for (const u of (Array.isArray(list) ? list : [])) if (typeof u === 'string' && /^https:\/\//.test(u)) return u;
+    }
+  }
+  return '';
+}
+
 // 'YYYY-MM' -> { start (inclusive), end (EXCLUSIVE = 1st of next month) } for /shop-metrics.
 export function monthRange(month) {
   const m = /^(\d{4})-(\d{2})$/.exec(String(month || ''));
@@ -517,5 +531,33 @@ export function createReportPilotClient({ base = 'https://api.tidjaruad.co', get
     throw e;
   }
 
-  return { rpFetch, getClientId, getAdvertiserIds, fetchShopMetrics, fetchAdsMetrics, fetchAdReport, getGmvMaxStores, fetchGmvMax, fetchShopVideos, fetchShopVideoDetail, fetchGmvMaxItems, fetchShopLives, fetchShopOverview, fetchShopCount, fetchShopProducts };
+  // A product's picture, from the Product API (Get Product). Same two-version habit as the sales list:
+  // 202309 first, 202212 as the fallback, the one that answers remembered. A product with no picture is
+  // a normal result ({ url: '' }), not an error. product ids are digits — anything else is refused
+  // before it can reach the URL path.
+  const PRODUCT_DETAIL_VERSIONS = ['202309', '202212'];
+  let productDetailVersion = '';
+
+  async function fetchProductImage(clientId, productId) {
+    if (!/^\d+$/.test(String(productId))) { const e = new Error('product id ไม่ถูกต้อง'); e.code = 'BAD_PRODUCT'; throw e; }
+    const order = productDetailVersion ? [productDetailVersion] : PRODUCT_DETAIL_VERSIONS;
+    const reasons = [];
+    for (const version of order) {
+      try {
+        const json = await rpFetch(`/gateway/shop/${clientId}/product/${version}/products/${productId}`);
+        if (!json || json.code !== 0) throw ttError(json, 'product detail error');
+        productDetailVersion = version;
+        return { url: readProductImageUrl(json.data), version };
+      } catch (e) {
+        if (notAVersionProblem(e)) throw e;
+        reasons.push(`${version}: ${e.message}`);
+      }
+    }
+    productDetailVersion = '';
+    const e = new Error(`product detail ใช้ไม่ได้ — ${reasons.join(' | ')}`);
+    e.code = 'TT_ERROR';
+    throw e;
+  }
+
+  return { rpFetch, getClientId, getAdvertiserIds, fetchShopMetrics, fetchAdsMetrics, fetchAdReport, getGmvMaxStores, fetchGmvMax, fetchShopVideos, fetchShopVideoDetail, fetchGmvMaxItems, fetchShopLives, fetchShopOverview, fetchShopCount, fetchShopProducts, fetchProductImage };
 }
